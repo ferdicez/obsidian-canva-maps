@@ -1,0 +1,664 @@
+/*
+Canva Maps — estilos da tela de mapa.
+
+Tudo está sob .cmap-* e escopado a partir de .cmap-conteudo, para não vazar
+para o resto do Obsidian. As cores saem das variáveis do tema, então o mapa
+acompanha claro/escuro sem precisar de dois conjuntos de regras.
+*/
+
+.cmap-conteudo {
+	padding: 0;
+	overflow: hidden;
+}
+
+.cmap-raiz {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	width: 100%;
+	overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   Trilha de navegação (topo)
+   -------------------------------------------------------------------------- */
+
+.cmap-trilha {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	flex-shrink: 0;
+}
+
+.cmap-trilha-voltar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	box-shadow: none;
+	flex-shrink: 0;
+}
+
+.cmap-trilha-voltar:hover:not(:disabled) {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.cmap-trilha-voltar:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+.cmap-trilha-itens {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.cmap-trilha-itens::-webkit-scrollbar {
+	display: none;
+}
+
+.cmap-trilha-item {
+	padding: 3px 8px;
+	border-radius: var(--radius-s);
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.cmap-trilha-item:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.cmap-trilha-atual {
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+	cursor: default;
+}
+
+.cmap-trilha-atual:hover {
+	background: transparent;
+}
+
+.cmap-trilha-sep {
+	color: var(--text-faint);
+	font-size: var(--font-ui-small);
+	flex-shrink: 0;
+}
+
+.cmap-trilha-acoes {
+	flex-shrink: 0;
+}
+
+.cmap-trilha-botao {
+	padding: 4px 10px;
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Corpo: área do mapa + painel lateral
+   -------------------------------------------------------------------------- */
+
+.cmap-corpo {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.cmap-area {
+	position: relative;
+	flex: 1;
+	overflow: hidden;
+	cursor: grab;
+	/* Grade de pontos: dá referência de espaço sem competir com os cards. */
+	background-color: var(--background-primary);
+	background-image: radial-gradient(circle, var(--background-modifier-border) 1px, transparent 1px);
+	background-size: 24px 24px;
+}
+
+.cmap-area-arrastando {
+	cursor: grabbing;
+}
+
+.cmap-plano {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	transform-origin: 0 0;
+}
+
+.cmap-svg {
+	position: absolute;
+	/* O SVG é um plano grande centrado na origem: as setas usam coordenadas do mapa,
+	   inclusive negativas, então ele precisa se estender para os dois lados.
+	   O viewBox (definido em setas.ts) faz o sistema de coordenadas interno bater com o
+	   dos cards, sem precisar de transform — que brigaria com o transform da ponta da seta. */
+	left: -10000px;
+	top: -10000px;
+	width: 20000px;
+	height: 20000px;
+	overflow: visible;
+	pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Estado vazio
+   -------------------------------------------------------------------------- */
+
+.cmap-vazio {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	text-align: center;
+	pointer-events: none;
+	user-select: none;
+}
+
+.cmap-vazio-titulo {
+	font-size: var(--font-ui-large);
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+
+.cmap-vazio-texto {
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Bloco (card)
+   -------------------------------------------------------------------------- */
+
+.cmap-bloco {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 10px 12px;
+	border: 1px solid var(--cmap-borda);
+	border-left: 3px solid var(--cmap-realce);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+	cursor: grab;
+	overflow: hidden;
+	user-select: none;
+}
+
+.cmap-bloco:hover {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+
+.cmap-bloco-selecionado {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.cmap-bloco-alvo {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.cmap-bloco-cabecalho {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.cmap-bloco-titulo {
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-medium);
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	flex: 1;
+	min-width: 0;
+}
+
+.cmap-bloco-nota {
+	display: flex;
+	align-items: center;
+	color: var(--text-faint);
+	flex-shrink: 0;
+}
+
+.cmap-bloco-nota .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+
+.cmap-bloco-texto {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	line-height: 1.4;
+	white-space: pre-wrap;
+	overflow: hidden;
+	flex: 1;
+	min-height: 0;
+}
+
+/* Checklist dentro do card */
+
+.cmap-bloco-checklist {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.cmap-bloco-check {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--font-ui-smaller);
+}
+
+.cmap-bloco-check input[type="checkbox"] {
+	margin: 0;
+	flex-shrink: 0;
+	cursor: pointer;
+}
+
+.cmap-bloco-check-texto {
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.cmap-bloco-check-feito {
+	text-decoration: line-through;
+	color: var(--text-faint);
+}
+
+/* Rodapé do card: selos de contagem */
+
+.cmap-bloco-rodape {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-shrink: 0;
+	margin-top: auto;
+	padding-top: 4px;
+}
+
+.cmap-bloco-selo {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.cmap-bloco-selo .svg-icon {
+	width: 12px;
+	height: 12px;
+}
+
+/* Alças */
+
+.cmap-bloco-alca {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	width: 14px;
+	height: 14px;
+	cursor: nwse-resize;
+	opacity: 0;
+	background: linear-gradient(
+		135deg,
+		transparent 50%,
+		var(--text-faint) 50%,
+		var(--text-faint) 62%,
+		transparent 62%,
+		transparent 75%,
+		var(--text-faint) 75%,
+		var(--text-faint) 87%,
+		transparent 87%
+	);
+}
+
+.cmap-bloco:hover .cmap-bloco-alca {
+	opacity: 0.8;
+}
+
+.cmap-bloco-alca-seta {
+	position: absolute;
+	right: -7px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	border: 2px solid var(--background-primary);
+	background: var(--interactive-accent);
+	cursor: crosshair;
+	opacity: 0;
+}
+
+.cmap-bloco:hover .cmap-bloco-alca-seta {
+	opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Setas
+   -------------------------------------------------------------------------- */
+
+.cmap-seta {
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.cmap-seta-linha {
+	fill: none;
+	stroke: var(--text-faint);
+	stroke-width: 2;
+}
+
+.cmap-seta-alvo {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 14;
+}
+
+.cmap-seta-ponta {
+	fill: var(--text-faint);
+}
+
+.cmap-seta:hover .cmap-seta-linha,
+.cmap-seta:hover .cmap-seta-ponta {
+	stroke: var(--text-muted);
+	fill: var(--text-muted);
+}
+
+.cmap-seta:hover .cmap-seta-linha {
+	fill: none;
+}
+
+.cmap-seta-selecionada .cmap-seta-linha {
+	stroke: var(--interactive-accent);
+	stroke-width: 3;
+}
+
+.cmap-seta-selecionada .cmap-seta-ponta {
+	fill: var(--interactive-accent);
+}
+
+.cmap-seta-rotulo {
+	fill: var(--text-muted);
+	font-size: 11px;
+	text-anchor: middle;
+	dominant-baseline: middle;
+	paint-order: stroke;
+	stroke: var(--background-primary);
+	stroke-width: 4px;
+	stroke-linejoin: round;
+}
+
+.cmap-seta-provisoria {
+	fill: none;
+	stroke: var(--interactive-accent);
+	stroke-width: 2;
+	stroke-dasharray: 5 4;
+	pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Painel lateral de edição
+   -------------------------------------------------------------------------- */
+
+.cmap-painel {
+	width: 280px;
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 12px 14px;
+	border-left: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	overflow-y: auto;
+}
+
+.cmap-painel-oculto {
+	display: none;
+}
+
+.cmap-painel-cabecalho {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.cmap-painel-titulo {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.cmap-painel-fechar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	border-radius: var(--radius-s);
+}
+
+.cmap-painel-fechar:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.cmap-painel-secao {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.cmap-painel-rotulo {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.cmap-painel-input,
+.cmap-painel-textarea {
+	width: 100%;
+	font-size: var(--font-ui-small);
+}
+
+.cmap-painel-textarea {
+	resize: vertical;
+	min-height: 80px;
+	font-family: inherit;
+	line-height: 1.4;
+}
+
+.cmap-painel-linha {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.cmap-painel-link {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-accent);
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.cmap-painel-botao {
+	padding: 5px 10px;
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.cmap-painel-perigo {
+	color: var(--text-error);
+}
+
+.cmap-painel-icone {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	flex-shrink: 0;
+	border-radius: var(--radius-s);
+}
+
+.cmap-painel-icone:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.cmap-painel-icone .svg-icon {
+	width: 14px;
+	height: 14px;
+}
+
+/* Cores */
+
+.cmap-painel-cores {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.cmap-painel-cor {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 50%;
+	border: 2px solid transparent;
+	background: var(--cmap-realce);
+	box-shadow: none;
+	cursor: pointer;
+}
+
+.cmap-painel-cor-ativa {
+	border-color: var(--text-normal);
+}
+
+/* Checklist */
+
+.cmap-painel-checklist {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.cmap-painel-check-linha {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.cmap-painel-check-linha input[type="checkbox"] {
+	margin: 0;
+	flex-shrink: 0;
+}
+
+.cmap-painel-check-texto {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--font-ui-smaller);
+	padding: 3px 6px;
+}
+
+.cmap-painel-acoes {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: auto;
+	padding-top: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   Paleta dos blocos
+
+   Cada cor define --cmap-realce (borda esquerda, bolinha do painel) e
+   --cmap-borda. Vêm das variáveis de cor do tema, então funcionam no claro
+   e no escuro sem duplicar regra.
+   -------------------------------------------------------------------------- */
+
+.cmap-cor-cinza {
+	--cmap-realce: var(--text-faint);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-vermelho {
+	--cmap-realce: var(--color-red);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-laranja {
+	--cmap-realce: var(--color-orange);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-amarelo {
+	--cmap-realce: var(--color-yellow);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-verde {
+	--cmap-realce: var(--color-green);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-azul {
+	--cmap-realce: var(--color-blue);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-roxo {
+	--cmap-realce: var(--color-purple);
+	--cmap-borda: var(--background-modifier-border);
+}
+
+.cmap-cor-rosa {
+	--cmap-realce: var(--color-pink);
+	--cmap-borda: var(--background-modifier-border);
+}

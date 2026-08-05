@@ -1,0 +1,219 @@
+import { App, TFile, setIcon } from "obsidian";
+import { Bloco, CORES, ROTULO_DA_COR, novoId } from "./tipos";
+import { SeletorNota } from "./seletor-nota";
+
+/**
+ * Painel lateral de edição do bloco selecionado. Fica ancorado à direita da tela do mapa
+ * e edita o bloco no lugar — cada alteração chama `aoMudar`, que persiste e redesenha o card.
+ *
+ * O painel é reconstruído do zero a cada troca de bloco, mas NÃO a cada tecla digitada:
+ * redesenhar enquanto se digita perderia o cursor. Por isso os campos de texto avisam a
+ * mudança sem pedir redesenho (`redesenhar: false`).
+ */
+export class PainelBloco {
+	private raiz: HTMLElement;
+	private bloco: Bloco | null = null;
+
+	constructor(
+		pai: HTMLElement,
+		private app: App,
+		private aoMudar: (redesenhar: boolean) => void,
+		private aoEntrar: (bloco: Bloco) => void,
+		private aoExcluir: (bloco: Bloco) => void
+	) {
+		this.raiz = pai.createDiv({ cls: "cmap-painel" });
+		this.raiz.addClass("cmap-painel-oculto");
+	}
+
+	/** Mostra o painel para um bloco, ou o esconde quando `bloco` é null. */
+	mostrar(bloco: Bloco | null): void {
+		this.bloco = bloco;
+		this.raiz.empty();
+		this.raiz.toggleClass("cmap-painel-oculto", bloco === null);
+		if (!bloco) return;
+
+		this.montarCabecalho(bloco);
+		this.montarTitulo(bloco);
+		this.montarTexto(bloco);
+		this.montarCor(bloco);
+		this.montarNota(bloco);
+		this.montarChecklist(bloco);
+		this.montarAcoes(bloco);
+	}
+
+	/**
+	 * Aponta o painel para `bloco` sem reconstruí-lo à toa: se já é exatamente o mesmo objeto,
+	 * não faz nada. Reconstruir esvazia os campos, e o mapa recarrega a cada mudança externa do
+	 * arquivo — sem esta guarda, um sync no meio da digitação apagaria o que está sendo escrito.
+	 */
+	reapontar(bloco: Bloco | null): void {
+		if (this.bloco === bloco) return;
+		this.mostrar(bloco);
+	}
+
+	/** Redesenha o painel se ele estiver mostrando este bloco (ex.: item de checklist marcado no card). */
+	atualizarSe(bloco: Bloco): void {
+		if (this.bloco?.id === bloco.id) this.mostrar(bloco);
+	}
+
+	/** Fecha o painel se estiver mostrando este bloco (ex.: o bloco foi excluído). */
+	fecharSe(idBloco: string): void {
+		if (this.bloco?.id === idBloco) this.mostrar(null);
+	}
+
+	private montarCabecalho(bloco: Bloco): void {
+		const cabecalho = this.raiz.createDiv({ cls: "cmap-painel-cabecalho" });
+		cabecalho.createSpan({ cls: "cmap-painel-titulo", text: "Bloco" });
+
+		const fechar = cabecalho.createEl("button", { cls: "cmap-painel-fechar", attr: { "aria-label": "Fechar painel" } });
+		setIcon(fechar, "x");
+		fechar.addEventListener("click", () => {
+			this.mostrar(null);
+			this.aoMudar(true);
+		});
+
+		void bloco;
+	}
+
+	private montarTitulo(bloco: Bloco): void {
+		const campo = this.criarSecao("Título").createEl("input", {
+			cls: "cmap-painel-input",
+			attr: { type: "text", placeholder: "Nome do bloco" },
+		});
+		campo.value = bloco.titulo;
+		campo.addEventListener("input", () => {
+			bloco.titulo = campo.value;
+			this.aoMudar(false);
+		});
+	}
+
+	private montarTexto(bloco: Bloco): void {
+		const campo = this.criarSecao("Observações").createEl("textarea", {
+			cls: "cmap-painel-textarea",
+			attr: { placeholder: "Anotações sobre este bloco…", rows: "6" },
+		});
+		campo.value = bloco.texto;
+		campo.addEventListener("input", () => {
+			bloco.texto = campo.value;
+			this.aoMudar(false);
+		});
+	}
+
+	private montarCor(bloco: Bloco): void {
+		const grade = this.criarSecao("Cor").createDiv({ cls: "cmap-painel-cores" });
+
+		for (const cor of CORES) {
+			const botao = grade.createEl("button", {
+				cls: `cmap-painel-cor cmap-cor-${cor}`,
+				attr: { "aria-label": ROTULO_DA_COR[cor] },
+			});
+			botao.toggleClass("cmap-painel-cor-ativa", bloco.cor === cor);
+			botao.addEventListener("click", () => {
+				bloco.cor = cor;
+				this.aoMudar(true);
+				this.mostrar(bloco);
+			});
+		}
+	}
+
+	private montarNota(bloco: Bloco): void {
+		const secao = this.criarSecao("Nota do vault");
+		const linha = secao.createDiv({ cls: "cmap-painel-linha" });
+
+		if (bloco.nota) {
+			const link = linha.createEl("a", { cls: "cmap-painel-link", text: bloco.nota });
+			link.addEventListener("click", (e) => {
+				e.preventDefault();
+				this.abrirNota(bloco.nota);
+			});
+
+			const remover = linha.createEl("button", {
+				cls: "cmap-painel-icone",
+				attr: { "aria-label": "Desvincular nota" },
+			});
+			setIcon(remover, "x");
+			remover.addEventListener("click", () => {
+				bloco.nota = null;
+				this.aoMudar(true);
+				this.mostrar(bloco);
+			});
+		} else {
+			const escolher = linha.createEl("button", { cls: "cmap-painel-botao", text: "Vincular nota…" });
+			escolher.addEventListener("click", () => {
+				new SeletorNota(this.app, (arquivo) => {
+					bloco.nota = arquivo.path;
+					this.aoMudar(true);
+					this.mostrar(bloco);
+				}).open();
+			});
+		}
+	}
+
+	private montarChecklist(bloco: Bloco): void {
+		const secao = this.criarSecao("Checklist");
+		const lista = secao.createDiv({ cls: "cmap-painel-checklist" });
+
+		for (const item of bloco.checklist) {
+			const linha = lista.createDiv({ cls: "cmap-painel-check-linha" });
+
+			const marca = linha.createEl("input", { attr: { type: "checkbox" } });
+			marca.checked = item.feito;
+			marca.addEventListener("change", () => {
+				item.feito = marca.checked;
+				this.aoMudar(true);
+			});
+
+			const texto = linha.createEl("input", { cls: "cmap-painel-check-texto", attr: { type: "text" } });
+			texto.value = item.texto;
+			texto.addEventListener("input", () => {
+				item.texto = texto.value;
+				this.aoMudar(false);
+			});
+
+			const remover = linha.createEl("button", {
+				cls: "cmap-painel-icone",
+				attr: { "aria-label": "Remover item" },
+			});
+			setIcon(remover, "trash-2");
+			remover.addEventListener("click", () => {
+				bloco.checklist.remove(item);
+				this.aoMudar(true);
+				this.mostrar(bloco);
+			});
+		}
+
+		const adicionar = secao.createEl("button", { cls: "cmap-painel-botao", text: "+ Adicionar item" });
+		adicionar.addEventListener("click", () => {
+			bloco.checklist.push({ id: novoId(), texto: "", feito: false });
+			this.aoMudar(true);
+			this.mostrar(bloco);
+			// Foca o item recém-criado para já sair digitando.
+			const campos = this.raiz.querySelectorAll<HTMLInputElement>(".cmap-painel-check-texto");
+			campos[campos.length - 1]?.focus();
+		});
+	}
+
+	private montarAcoes(bloco: Bloco): void {
+		const acoes = this.raiz.createDiv({ cls: "cmap-painel-acoes" });
+
+		const entrar = acoes.createEl("button", { cls: "cmap-painel-botao mod-cta", text: "Entrar no bloco" });
+		entrar.addEventListener("click", () => this.aoEntrar(bloco));
+
+		const excluir = acoes.createEl("button", { cls: "cmap-painel-botao cmap-painel-perigo", text: "Excluir" });
+		excluir.addEventListener("click", () => this.aoExcluir(bloco));
+	}
+
+	private criarSecao(rotulo: string): HTMLElement {
+		const secao = this.raiz.createDiv({ cls: "cmap-painel-secao" });
+		secao.createDiv({ cls: "cmap-painel-rotulo", text: rotulo });
+		return secao;
+	}
+
+	private abrirNota(caminho: string | null): void {
+		if (!caminho) return;
+		const arquivo = this.app.vault.getAbstractFileByPath(caminho);
+		if (arquivo instanceof TFile) {
+			this.app.workspace.getLeaf("tab").openFile(arquivo);
+		}
+	}
+}
