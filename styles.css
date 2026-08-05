@@ -199,10 +199,10 @@ acompanha claro/escuro sem precisar de dois conjuntos de regras.
 	flex-direction: column;
 	gap: 6px;
 	padding: 10px 12px;
-	border: 1px solid var(--cmap-borda);
-	border-left: 3px solid var(--cmap-realce);
+	border: 1px solid var(--cmap-realce);
+	border-left: 4px solid var(--cmap-realce);
 	border-radius: var(--radius-m);
-	background: var(--background-primary);
+	background: var(--cmap-fundo);
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 	cursor: grab;
 	overflow: hidden;
@@ -616,49 +616,92 @@ acompanha claro/escuro sem precisar de dois conjuntos de regras.
 }
 
 /* --------------------------------------------------------------------------
-   Paleta dos blocos
+   Painel de configurações
 
-   Cada cor define --cmap-realce (borda esquerda, bolinha do painel) e
-   --cmap-borda. Vêm das variáveis de cor do tema, então funcionam no claro
-   e no escuro sem duplicar regra.
+   Segue plugins/_docs/painel-de-configuracoes.md: escopo por classe raiz e
+   "linha, não cartão" — o tema Minimal desenha cada .setting-item como um
+   cartão, e o !important é necessário porque as regras dele têm
+   especificidade maior.
    -------------------------------------------------------------------------- */
 
+.canva-maps-config .setting-item {
+	background: transparent !important;
+	border: none !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	border-bottom: 1px solid var(--background-modifier-border) !important;
+	padding: 10px 4px !important;
+	margin: 0 !important;
+}
+
+.canva-maps-config .setting-item:last-child {
+	border-bottom: none !important;
+}
+
+.canva-maps-config-vazio {
+	padding: 8px 4px 0;
+	font-style: italic;
+	color: var(--text-faint);
+	font-size: var(--font-ui-small);
+}
+
+/* --------------------------------------------------------------------------
+   Paleta dos blocos
+
+   Cada cor define --cmap-realce (borda, bolinha do painel) e --cmap-fundo
+   (fundo suave do card, o que faz a cor ser realmente visível de longe).
+
+   As variáveis de cor do tema (--color-blue etc.) vêm PRIMEIRO, para o mapa
+   acompanhar o tema dela; o segundo valor de cada var() é a reserva, usada
+   quando o tema não define aquela variável — sem ela o card ficaria com a
+   borda invisível em vez de colorida.
+
+   O fundo usa color-mix sobre --background-primary: assim a mesma regra
+   serve para o tema claro e o escuro, sem duplicar a paleta.
+   -------------------------------------------------------------------------- */
+
+/* Reserva para um bloco cuja cor não caiu em nenhuma classe (arquivo de versão futura). */
+.cmap-bloco {
+	--cmap-realce: var(--text-faint, #9aa0a6);
+	--cmap-fundo: var(--background-primary);
+}
+
 .cmap-cor-cinza {
-	--cmap-realce: var(--text-faint);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--text-muted, #6e7681);
+	--cmap-fundo: var(--background-primary);
 }
 
 .cmap-cor-vermelho {
-	--cmap-realce: var(--color-red);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-red, #e5534b);
+	--cmap-fundo: color-mix(in srgb, var(--color-red, #e5534b) 10%, var(--background-primary));
 }
 
 .cmap-cor-laranja {
-	--cmap-realce: var(--color-orange);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-orange, #e08c3b);
+	--cmap-fundo: color-mix(in srgb, var(--color-orange, #e08c3b) 10%, var(--background-primary));
 }
 
 .cmap-cor-amarelo {
-	--cmap-realce: var(--color-yellow);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-yellow, #d4a72c);
+	--cmap-fundo: color-mix(in srgb, var(--color-yellow, #d4a72c) 12%, var(--background-primary));
 }
 
 .cmap-cor-verde {
-	--cmap-realce: var(--color-green);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-green, #3fa860);
+	--cmap-fundo: color-mix(in srgb, var(--color-green, #3fa860) 10%, var(--background-primary));
 }
 
 .cmap-cor-azul {
-	--cmap-realce: var(--color-blue);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-blue, #4a90d9);
+	--cmap-fundo: color-mix(in srgb, var(--color-blue, #4a90d9) 10%, var(--background-primary));
 }
 
 .cmap-cor-roxo {
-	--cmap-realce: var(--color-purple);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-purple, #9a6dd7);
+	--cmap-fundo: color-mix(in srgb, var(--color-purple, #9a6dd7) 10%, var(--background-primary));
 }
 
 .cmap-cor-rosa {
-	--cmap-realce: var(--color-pink);
-	--cmap-borda: var(--background-modifier-border);
+	--cmap-realce: var(--color-pink, #d95ba0);
+	--cmap-fundo: color-mix(in srgb, var(--color-pink, #d95ba0) 10%, var(--background-primary));
 }
