@@ -14,7 +14,8 @@ import {
 	novoId,
 	progressoChecklist,
 } from "./tipos";
-import { desenharSetas } from "./setas";
+import { Lado, desenharSetas, pontoNoLado } from "./setas";
+import { Guia, encaixarAoMover, encaixarAoRedimensionar } from "./alinhamento";
 import { PainelBloco } from "./painel-bloco";
 import { ModalConfirmar } from "./modal-confirmar";
 
@@ -54,7 +55,7 @@ type Arrasto =
 			largura: number;
 			altura: number;
 	  }
-	| { tipo: "seta"; de: Bloco; x: number; y: number };
+	| { tipo: "seta"; de: Bloco; lado: Lado; x: number; y: number };
 
 /**
  * A tela do mapa: desenha um nível (os blocos de um bloco pai, ou a raiz) e trata
@@ -74,6 +75,8 @@ export class TelaMapa {
 	private camera: Camera = { x: 0, y: 0, zoom: 1 };
 	private arrasto: Arrasto = { tipo: "nenhum" };
 	private linhaProvisoria: SVGPathElement | null = null;
+	/** Linhas-guia do encaixe, vivas só durante o arrasto. */
+	private guias: SVGLineElement[] = [];
 
 	/** Caminho de ids até o nível aberto. Vazio = raiz. */
 	private caminho: string[] = [];
@@ -254,6 +257,7 @@ export class TelaMapa {
 			// referência, o arrasto seguinte escreveria num nó já descartado.
 			this.linhaProvisoria?.remove();
 			this.linhaProvisoria = null;
+			this.limparGuias();
 			this.plano.querySelectorAll(".cmap-bloco-alvo").forEach((el) => el.removeClass("cmap-bloco-alvo"));
 		}
 
@@ -301,7 +305,11 @@ export class TelaMapa {
 		card.style.height = `${bloco.altura}px`;
 		if (this.blocoSelecionado === bloco.id) card.addClass("cmap-bloco-selecionado");
 
-		const cabecalho = card.createDiv({ cls: "cmap-bloco-cabecalho" });
+		// O conteúdo mora num contêiner que recorta; o card em si não recorta, senão as
+		// alças de seta (que ficam para fora da borda) seriam cortadas pela metade.
+		const conteudo = card.createDiv({ cls: "cmap-bloco-conteudo" });
+
+		const cabecalho = conteudo.createDiv({ cls: "cmap-bloco-cabecalho" });
 		cabecalho.createDiv({ cls: "cmap-bloco-titulo", text: bloco.titulo || "Sem título" });
 
 		if (bloco.nota) {
@@ -310,19 +318,25 @@ export class TelaMapa {
 		}
 
 		if (bloco.texto) {
-			card.createDiv({ cls: "cmap-bloco-texto", text: bloco.texto });
+			conteudo.createDiv({ cls: "cmap-bloco-texto", text: bloco.texto });
 		}
 
-		this.montarChecklistDoCard(card, bloco);
-		this.montarRodapeDoCard(card, bloco);
+		this.montarChecklistDoCard(conteudo, bloco);
+		this.montarRodapeDoCard(conteudo, bloco);
 
 		// Alça de redimensionamento no canto inferior direito.
 		const alca = card.createDiv({ cls: "cmap-bloco-alca", attr: { "aria-label": "Redimensionar" } });
 		alca.addEventListener("mousedown", (e) => this.iniciarRedimensionamento(e, bloco));
 
-		// Alça de seta: arraste dela até outro bloco para ligar os dois.
-		const alcaSeta = card.createDiv({ cls: "cmap-bloco-alca-seta", attr: { "aria-label": "Ligar a outro bloco" } });
-		alcaSeta.addEventListener("mousedown", (e) => this.iniciarSeta(e, bloco));
+		// Uma alça de seta por lado, como no Canvas nativo: puxar sempre do lado que aponta
+		// para o destino evita a linha dando a volta no próprio card.
+		for (const lado of ["cima", "direita", "baixo", "esquerda"] as const) {
+			const alcaSeta = card.createDiv({
+				cls: `cmap-bloco-alca-seta cmap-alca-${lado}`,
+				attr: { "aria-label": "Ligar a outro bloco" },
+			});
+			alcaSeta.addEventListener("mousedown", (e) => this.iniciarSeta(e, bloco, lado));
+		}
 
 		card.addEventListener("mousedown", (e) => this.iniciarArrastoDeBloco(e, bloco));
 		card.addEventListener("dblclick", (e) => {
@@ -388,10 +402,12 @@ export class TelaMapa {
 
 	/** Refaz só o rodapé de um card (contador de checklist), sem tocar no resto. */
 	private atualizarRodape(bloco: Bloco): void {
-		const card = this.plano.querySelector<HTMLElement>(`.cmap-bloco[data-id="${bloco.id}"]`);
-		if (!card) return;
-		card.querySelector(".cmap-bloco-rodape")?.remove();
-		this.montarRodapeDoCard(card, bloco);
+		const conteudo = this.plano.querySelector<HTMLElement>(
+			`.cmap-bloco[data-id="${bloco.id}"] .cmap-bloco-conteudo`
+		);
+		if (!conteudo) return;
+		conteudo.querySelector(".cmap-bloco-rodape")?.remove();
+		this.montarRodapeDoCard(conteudo, bloco);
 	}
 
 	// -------------------------------------------------------------------------
@@ -529,13 +545,13 @@ export class TelaMapa {
 		};
 	}
 
-	private iniciarSeta(e: MouseEvent, bloco: Bloco): void {
+	private iniciarSeta(e: MouseEvent, bloco: Bloco, lado: Lado): void {
 		if (e.button !== 0) return;
 		e.stopPropagation();
 		e.preventDefault();
 
 		const ponto = this.paraCoordenadasDoMapa(e.clientX, e.clientY);
-		this.arrasto = { tipo: "seta", de: bloco, x: ponto.x, y: ponto.y };
+		this.arrasto = { tipo: "seta", de: bloco, lado, x: ponto.x, y: ponto.y };
 		this.criarLinhaProvisoria();
 	}
 
@@ -553,18 +569,57 @@ export class TelaMapa {
 				if (!this.arrasto.moveu && Math.hypot(dx, dy) * this.camera.zoom < LIMIAR_ARRASTO) break;
 
 				this.arrasto.moveu = true;
-				this.arrasto.bloco.x = Math.round(this.arrasto.blocoX + dx);
-				this.arrasto.bloco.y = Math.round(this.arrasto.blocoY + dy);
-				this.posicionarCard(this.arrasto.bloco);
+				const bloco = this.arrasto.bloco;
+				const livreX = Math.round(this.arrasto.blocoX + dx);
+				const livreY = Math.round(this.arrasto.blocoY + dy);
+
+				// Alt segura o posicionamento livre, para quando ela quiser um lugar
+				// que o encaixe insiste em corrigir.
+				if (e.altKey) {
+					bloco.x = livreX;
+					bloco.y = livreY;
+					this.limparGuias();
+				} else {
+					const encaixe = encaixarAoMover(
+						livreX,
+						livreY,
+						bloco.largura,
+						bloco.altura,
+						this.vizinhosDe(bloco)
+					);
+					bloco.x = encaixe.x;
+					bloco.y = encaixe.y;
+					this.desenharGuias(encaixe.guias);
+				}
+
+				this.posicionarCard(bloco);
 				this.redesenharSetas();
 				break;
 			}
 			case "redimensionar": {
 				const dx = (e.clientX - this.arrasto.inicioX) / this.camera.zoom;
 				const dy = (e.clientY - this.arrasto.inicioY) / this.camera.zoom;
-				this.arrasto.bloco.largura = Math.round(Math.max(LARGURA_MINIMA, this.arrasto.largura + dx));
-				this.arrasto.bloco.altura = Math.round(Math.max(ALTURA_MINIMA, this.arrasto.altura + dy));
-				this.posicionarCard(this.arrasto.bloco);
+				const alvo = this.arrasto.bloco;
+				const livreLargura = Math.round(Math.max(LARGURA_MINIMA, this.arrasto.largura + dx));
+				const livreAltura = Math.round(Math.max(ALTURA_MINIMA, this.arrasto.altura + dy));
+
+				if (e.altKey) {
+					alvo.largura = livreLargura;
+					alvo.altura = livreAltura;
+					this.limparGuias();
+				} else {
+					const encaixe = encaixarAoRedimensionar(
+						alvo,
+						livreLargura,
+						livreAltura,
+						this.vizinhosDe(alvo)
+					);
+					alvo.largura = encaixe.largura;
+					alvo.altura = encaixe.altura;
+					this.desenharGuias(encaixe.guias);
+				}
+
+				this.posicionarCard(alvo);
 				this.redesenharSetas();
 				break;
 			}
@@ -583,6 +638,7 @@ export class TelaMapa {
 		const arrasto = this.arrasto;
 		this.arrasto = { tipo: "nenhum" };
 		this.area.removeClass("cmap-area-arrastando");
+		this.limparGuias();
 
 		if (arrasto.tipo === "bloco" && arrasto.moveu) {
 			this.aoSalvar();
@@ -592,6 +648,45 @@ export class TelaMapa {
 			this.finalizarSeta(arrasto.de, e);
 		}
 	};
+
+	/** Os outros blocos do nível: com quem o bloco em movimento pode se alinhar. */
+	private vizinhosDe(bloco: Bloco): Bloco[] {
+		return this.nivelAtual().blocos.filter((b) => b.id !== bloco.id);
+	}
+
+	/**
+	 * Desenha as linhas-guia do encaixe. Elas vivem no mesmo SVG das setas, então usam
+	 * coordenadas do mapa e acompanham pan e zoom sem cálculo extra.
+	 */
+	private desenharGuias(guias: Guia[]): void {
+		this.limparGuias();
+		if (guias.length === 0) return;
+
+		for (const guia of guias) {
+			const linha = document.createElementNS(NS_SVG, "line");
+			linha.classList.add("cmap-guia");
+
+			if (guia.orientacao === "vertical") {
+				linha.setAttribute("x1", String(guia.posicao));
+				linha.setAttribute("x2", String(guia.posicao));
+				linha.setAttribute("y1", String(guia.de));
+				linha.setAttribute("y2", String(guia.ate));
+			} else {
+				linha.setAttribute("y1", String(guia.posicao));
+				linha.setAttribute("y2", String(guia.posicao));
+				linha.setAttribute("x1", String(guia.de));
+				linha.setAttribute("x2", String(guia.ate));
+			}
+
+			this.svg.appendChild(linha);
+			this.guias.push(linha);
+		}
+	}
+
+	private limparGuias(): void {
+		for (const linha of this.guias) linha.remove();
+		this.guias = [];
+	}
 
 	/** Move só o card no DOM, sem redesenhar tudo — arrasto precisa ser barato. */
 	private posicionarCard(bloco: Bloco): void {
@@ -609,6 +704,11 @@ export class TelaMapa {
 			selecionada: this.setaSelecionada,
 			aoClicar: (seta) => this.selecionarSeta(seta),
 		});
+
+		// desenharSetas esvazia o SVG, e as guias moram nele: sem reinserir, elas piscariam
+		// e sumiriam a cada movimento do arrasto.
+		for (const linha of this.guias) this.svg.appendChild(linha);
+		if (this.linhaProvisoria) this.svg.appendChild(this.linhaProvisoria);
 	}
 
 	// -------------------------------------------------------------------------
@@ -623,10 +723,13 @@ export class TelaMapa {
 
 	private atualizarLinhaProvisoria(): void {
 		if (this.arrasto.tipo !== "seta" || !this.linhaProvisoria) return;
-		const de = this.arrasto.de;
-		const x1 = de.x + de.largura / 2;
-		const y1 = de.y + de.altura / 2;
-		this.linhaProvisoria.setAttribute("d", `M ${x1} ${y1} L ${this.arrasto.x} ${this.arrasto.y}`);
+		// Sai da borda do lado que ela pegou, não do centro do card: é o que dá a sensação
+		// de estar puxando o fio daquele ponto.
+		const origem = pontoNoLado(this.arrasto.de, this.arrasto.lado);
+		this.linhaProvisoria.setAttribute(
+			"d",
+			`M ${origem.x} ${origem.y} L ${this.arrasto.x} ${this.arrasto.y}`
+		);
 	}
 
 	private destacarAlvoDaSeta(e: MouseEvent): void {

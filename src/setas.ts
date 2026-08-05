@@ -19,9 +19,9 @@ function ajustarViewBox(svg: SVGSVGElement): void {
 }
 
 /** Lado de um bloco de onde a seta sai ou onde chega. */
-type Lado = "cima" | "baixo" | "esquerda" | "direita";
+export type Lado = "cima" | "baixo" | "esquerda" | "direita";
 
-interface Ponto {
+export interface Ponto {
 	x: number;
 	y: number;
 }
@@ -49,7 +49,7 @@ function ladosEntre(de: Bloco, para: Bloco): { saida: Lado; chegada: Lado } {
 }
 
 /** Ponto na borda do bloco, no lado indicado. */
-function pontoNoLado(bloco: Bloco, lado: Lado): Ponto {
+export function pontoNoLado(bloco: Bloco, lado: Lado): Ponto {
 	const c = centro(bloco);
 	switch (lado) {
 		case "cima":

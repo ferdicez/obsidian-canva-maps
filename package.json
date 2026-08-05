@@ -1,6 +1,6 @@
 {
 	"name": "canva-maps",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Plugin Obsidian: mapas visuais de blocos aninhados para estruturar sites e sistemas",
 	"main": "main.js",
 	"scripts": {
