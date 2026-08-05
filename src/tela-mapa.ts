@@ -18,6 +18,7 @@ import { Lado, desenharSetas, pontoNoLado } from "./setas";
 import { Guia, encaixarAoMover, encaixarAoRedimensionar } from "./alinhamento";
 import { PainelBloco } from "./painel-bloco";
 import { ModalConfirmar } from "./modal-confirmar";
+import { SeletorNota } from "./seletor-nota";
 
 const NS_SVG = "http://www.w3.org/2000/svg";
 
@@ -103,7 +104,6 @@ export class TelaMapa {
 
 		this.painel = new PainelBloco(
 			corpo,
-			this.app,
 			(redesenhar) => {
 				this.aoSalvar();
 				if (redesenhar) this.desenhar();
@@ -979,12 +979,37 @@ export class TelaMapa {
 			}
 		});
 
+		// Vincular nota mora só aqui, não no painel: ela pediu para tirar de lá por ser fácil
+		// de acionar sem querer. No menu ela é uma escolha deliberada.
 		if (bloco.nota) {
 			menu.addItem((item) =>
 				item
 					.setTitle("Abrir nota vinculada")
 					.setIcon("file-text")
 					.onClick(() => this.abrirNota(bloco.nota))
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle("Desvincular nota")
+					.setIcon("unlink")
+					.onClick(() => {
+						bloco.nota = null;
+						this.aoSalvar();
+						this.desenharPlano();
+					})
+			);
+		} else {
+			menu.addItem((item) =>
+				item
+					.setTitle("Vincular a uma nota…")
+					.setIcon("link")
+					.onClick(() => {
+						new SeletorNota(this.app, (arquivo) => {
+							bloco.nota = arquivo.path;
+							this.aoSalvar();
+							this.desenharPlano();
+						}).open();
+					})
 			);
 		}
 

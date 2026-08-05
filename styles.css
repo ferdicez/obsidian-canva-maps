@@ -19,6 +19,23 @@ acompanha claro/escuro sem precisar de dois conjuntos de regras.
 	overflow: hidden;
 }
 
+/*
+Neutraliza o estilo de <button> do Obsidian e do tema dentro do mapa.
+
+O tema desenha todo botão com fundo, borda e sombra próprios, e essas regras têm
+especificidade maior que uma classe só — foi o que deixava as bolinhas de cor cinzas
+em vez de coloridas, e o que enche a trilha de caixinhas. Aqui os botões voltam a ser
+neutros, e cada componente pinta o que precisa por cima.
+*/
+.cmap-raiz button {
+	background-color: transparent;
+	background-image: none;
+	border: none;
+	box-shadow: none;
+	color: inherit;
+	font-family: inherit;
+}
+
 /* --------------------------------------------------------------------------
    Trilha de navegação (topo)
    -------------------------------------------------------------------------- */
@@ -113,6 +130,14 @@ acompanha claro/escuro sem precisar de dois conjuntos de regras.
 	padding: 4px 10px;
 	font-size: var(--font-ui-small);
 	cursor: pointer;
+	background-color: var(--interactive-normal);
+	color: var(--text-normal);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+}
+
+.cmap-trilha-botao:hover {
+	background-color: var(--interactive-hover);
 }
 
 /* --------------------------------------------------------------------------
@@ -589,10 +614,29 @@ acompanha claro/escuro sem precisar de dois conjuntos de regras.
 	text-overflow: ellipsis;
 }
 
+/* Botões que precisam parecer botão: o reset lá em cima os deixou neutros, então a
+   aparência é redesenhada aqui, com as variáveis do tema. */
 .cmap-painel-botao {
 	padding: 5px 10px;
 	font-size: var(--font-ui-small);
 	cursor: pointer;
+	background-color: var(--interactive-normal);
+	color: var(--text-normal);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+}
+
+.cmap-painel-botao:hover {
+	background-color: var(--interactive-hover);
+}
+
+.cmap-painel-botao.mod-cta {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.cmap-painel-botao.mod-cta:hover {
+	background-color: var(--interactive-accent-hover);
 }
 
 .cmap-painel-perigo {
@@ -632,18 +676,24 @@ acompanha claro/escuro sem precisar de dois conjuntos de regras.
 	gap: 6px;
 }
 
-.cmap-painel-cor {
+/* A bolinha é um <button>: o reset de `.cmap-raiz button` lá em cima já tirou o fundo
+   que o tema pintava (era o que a deixava cinza), então aqui basta pintar a cor. */
+.cmap-painel-cores .cmap-painel-cor {
 	width: 24px;
 	height: 24px;
+	min-width: 0;
 	padding: 0;
 	border-radius: 50%;
 	border: 2px solid transparent;
-	background: var(--cmap-realce);
-	box-shadow: none;
+	background-color: var(--cmap-realce);
 	cursor: pointer;
 }
 
-.cmap-painel-cor-ativa {
+.cmap-painel-cores .cmap-painel-cor:hover {
+	transform: scale(1.12);
+}
+
+.cmap-painel-cores .cmap-painel-cor-ativa {
 	border-color: var(--text-normal);
 }
 

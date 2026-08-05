@@ -1,6 +1,5 @@
-import { App, TFile, setIcon } from "obsidian";
+import { setIcon } from "obsidian";
 import { Bloco, CORES, ROTULO_DA_COR, novoId } from "./tipos";
-import { SeletorNota } from "./seletor-nota";
 
 /**
  * Painel lateral de edição do bloco selecionado. Fica ancorado à direita da tela do mapa
@@ -9,6 +8,10 @@ import { SeletorNota } from "./seletor-nota";
  * O painel é reconstruído do zero a cada troca de bloco, mas NÃO a cada tecla digitada:
  * redesenhar enquanto se digita perderia o cursor. Por isso os campos de texto avisam a
  * mudança sem pedir redesenho (`redesenhar: false`).
+ *
+ * O vínculo com uma nota do vault saiu daqui a pedido dela (era fácil de acionar sem querer
+ * e o rótulo não dizia o que fazia). O campo continua no formato `.cmap` e no menu de
+ * contexto do bloco, então mapas que já tinham nota vinculada não perdem nada.
  */
 export class PainelBloco {
 	private raiz: HTMLElement;
@@ -16,7 +19,6 @@ export class PainelBloco {
 
 	constructor(
 		pai: HTMLElement,
-		private app: App,
 		private aoMudar: (redesenhar: boolean) => void,
 		private aoEntrar: (bloco: Bloco) => void,
 		private aoExcluir: (bloco: Bloco) => void
@@ -36,7 +38,6 @@ export class PainelBloco {
 		this.montarTitulo(bloco);
 		this.montarTexto(bloco);
 		this.montarCor(bloco);
-		this.montarNota(bloco);
 		this.montarChecklist(bloco);
 		this.montarAcoes(bloco);
 	}
@@ -116,39 +117,6 @@ export class PainelBloco {
 		}
 	}
 
-	private montarNota(bloco: Bloco): void {
-		const secao = this.criarSecao("Nota do vault");
-		const linha = secao.createDiv({ cls: "cmap-painel-linha" });
-
-		if (bloco.nota) {
-			const link = linha.createEl("a", { cls: "cmap-painel-link", text: bloco.nota });
-			link.addEventListener("click", (e) => {
-				e.preventDefault();
-				this.abrirNota(bloco.nota);
-			});
-
-			const remover = linha.createEl("button", {
-				cls: "cmap-painel-icone",
-				attr: { "aria-label": "Desvincular nota" },
-			});
-			setIcon(remover, "x");
-			remover.addEventListener("click", () => {
-				bloco.nota = null;
-				this.aoMudar(true);
-				this.mostrar(bloco);
-			});
-		} else {
-			const escolher = linha.createEl("button", { cls: "cmap-painel-botao", text: "Vincular nota…" });
-			escolher.addEventListener("click", () => {
-				new SeletorNota(this.app, (arquivo) => {
-					bloco.nota = arquivo.path;
-					this.aoMudar(true);
-					this.mostrar(bloco);
-				}).open();
-			});
-		}
-	}
-
 	private montarChecklist(bloco: Bloco): void {
 		const secao = this.criarSecao("Checklist");
 		const lista = secao.createDiv({ cls: "cmap-painel-checklist" });
@@ -209,11 +177,4 @@ export class PainelBloco {
 		return secao;
 	}
 
-	private abrirNota(caminho: string | null): void {
-		if (!caminho) return;
-		const arquivo = this.app.vault.getAbstractFileByPath(caminho);
-		if (arquivo instanceof TFile) {
-			this.app.workspace.getLeaf("tab").openFile(arquivo);
-		}
-	}
 }
