@@ -91,8 +91,15 @@ export interface Mapa {
 
 export const LARGURA_PADRAO = 280;
 export const ALTURA_PADRAO = 180;
-export const LARGURA_MINIMA = 140;
-export const ALTURA_MINIMA = 90;
+
+/**
+ * Mínimos baixos de propósito: os blocos representam elementos de uma tela, e um wireframe
+ * precisa de formatos finos — uma barra lateral de 60px de largura, um cabeçalho de 40px de
+ * altura. Um mínimo confortável para ler texto impediria justamente o que o plugin serve.
+ * O card esconde o que não couber (ver styles.css) em vez de estourar.
+ */
+export const LARGURA_MINIMA = 32;
+export const ALTURA_MINIMA = 28;
 
 /** Gera um id curto e único o bastante para blocos e setas dentro de um arquivo. */
 export function novoId(): string {

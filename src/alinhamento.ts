@@ -165,8 +165,9 @@ export function encaixarAoRedimensionar(
 		}
 	}
 
-	// O encaixe não pode empurrar o card abaixo do tamanho mínimo: nesse caso ele é ignorado
-	// (e a guia não aparece, porque o alinhamento não chegou a acontecer).
+	// Rede de segurança: quem chama já limita ao mínimo antes de chegar aqui, mas o encaixe
+	// puxa o tamanho para a referência do vizinho e poderia furar esse piso. Encaixe que
+	// furaria é descartado — e a guia não aparece, porque o alinhamento não aconteceu.
 	const encaixaX = melhorX !== null && melhorX.posicao - bloco.x >= LARGURA_MINIMA;
 	const encaixaY = melhorY !== null && melhorY.posicao - bloco.y >= ALTURA_MINIMA;
 

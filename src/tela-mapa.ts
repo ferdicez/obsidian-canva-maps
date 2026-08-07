@@ -1,8 +1,10 @@
 import { App, Menu, Notice, TFile, setIcon } from "obsidian";
 import {
 	ALTURA_MINIMA,
+	ALTURA_PADRAO,
 	Bloco,
 	LARGURA_MINIMA,
+	LARGURA_PADRAO,
 	Mapa,
 	Nivel,
 	ROTULO_DA_COR,
@@ -319,6 +321,7 @@ export class TelaMapa {
 		card.style.top = `${bloco.y}px`;
 		card.style.width = `${bloco.largura}px`;
 		card.style.height = `${bloco.altura}px`;
+		this.marcarTamanho(card, bloco);
 		if (this.blocoSelecionado === bloco.id) card.addClass("cmap-bloco-selecionado");
 
 		// O conteúdo mora num contêiner que recorta; o card em si não recorta, senão as
@@ -712,6 +715,32 @@ export class TelaMapa {
 		card.style.top = `${bloco.y}px`;
 		card.style.width = `${bloco.largura}px`;
 		card.style.height = `${bloco.altura}px`;
+		this.marcarTamanho(card, bloco);
+	}
+
+	/**
+	 * Marca no card em que faixa de tamanho ele está, para o CSS esconder o que não cabe.
+	 *
+	 * Um bloco pode ser uma barra lateral de 60px ou um cabeçalho de 40px de altura — nesses
+	 * formatos, texto e selos não cabem e estourariam o card. A alternativa seria consultar o
+	 * tamanho renderizado, mas isso força layout a cada quadro do arrasto; aqui os números do
+	 * modelo bastam.
+	 */
+	private marcarTamanho(card: HTMLElement, bloco: Bloco): void {
+		const estreito = bloco.largura < 120;
+		const baixo = bloco.altura < 64;
+		const minusculo = bloco.largura < 72 || bloco.altura < 40;
+
+		// A faixa é guardada no próprio elemento: `posicionarCard` roda a cada quadro do
+		// arrasto, e trocar classes que mexem em writing-mode/display forçaria relayout da
+		// subárvore toda. Como a faixa quase nunca muda, o caso comum sai de graça.
+		const faixa = `${estreito}${baixo}${minusculo}`;
+		if (card.dataset.faixa === faixa) return;
+		card.dataset.faixa = faixa;
+
+		card.toggleClass("cmap-bloco-estreito", estreito);
+		card.toggleClass("cmap-bloco-baixo", baixo);
+		card.toggleClass("cmap-bloco-minusculo", minusculo);
 	}
 
 	private redesenharSetas(): void {
@@ -825,7 +854,7 @@ export class TelaMapa {
 		const caixa = this.area.getBoundingClientRect();
 		const centro = this.paraCoordenadasDoMapa(caixa.left + caixa.width / 2, caixa.top + caixa.height / 2);
 		// Desconta metade do card para o novo bloco nascer centrado, não com o canto no centro.
-		this.criarBloco(centro.x - 140, centro.y - 90);
+		this.criarBloco(centro.x - LARGURA_PADRAO / 2, centro.y - ALTURA_PADRAO / 2);
 	}
 
 	/**

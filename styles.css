@@ -303,6 +303,75 @@ neutros, e cada componente pinta o que precisa por cima.
 	min-height: 0;
 }
 
+/*
+Blocos finos: o mínimo é baixo de propósito, porque um wireframe precisa de barras
+laterais estreitas e cabeçalhos rasos. Nesses formatos o conteúdo é retirado por
+ordem de importância, e o título é o último a sair.
+*/
+
+.cmap-bloco-estreito .cmap-bloco-conteudo,
+.cmap-bloco-baixo .cmap-bloco-conteudo {
+	padding: 6px 8px;
+	gap: 3px;
+}
+
+/* Some primeiro o que é detalhe: observações, checklist e contadores. */
+.cmap-bloco-baixo .cmap-bloco-texto,
+.cmap-bloco-baixo .cmap-bloco-checklist,
+.cmap-bloco-baixo .cmap-bloco-rodape,
+.cmap-bloco-estreito .cmap-bloco-texto,
+.cmap-bloco-estreito .cmap-bloco-checklist,
+.cmap-bloco-estreito .cmap-bloco-rodape {
+	display: none;
+}
+
+/*
+Numa faixa vertical estreita o título cabe melhor girado, como numa barra lateral.
+
+Girar o texto exige girar também o eixo do flex que o contém: o cabeçalho vira `column`,
+e o título troca `flex: 1` por `flex: 0 1 auto`. Sem isso o título continuaria sendo
+dimensionado pela LARGURA disponível — vira uma tira fina com os glifos cortados.
+E as propriedades de recorte precisam trocar de eixo junto (min-width → min-height).
+*/
+.cmap-bloco-estreito:not(.cmap-bloco-baixo) .cmap-bloco-cabecalho {
+	flex-direction: column;
+	justify-content: center;
+	height: 100%;
+	min-height: 0;
+}
+
+.cmap-bloco-estreito:not(.cmap-bloco-baixo) .cmap-bloco-titulo {
+	writing-mode: vertical-rl;
+	text-orientation: mixed;
+	flex: 0 1 auto;
+	min-width: 0;
+	min-height: 0;
+	max-height: 100%;
+	/* No modo vertical o corte acontece na altura, e ellipsis só pinta no eixo inline —
+	   que agora é o vertical. Assim o título longo ainda termina com reticência. */
+	text-overflow: ellipsis;
+}
+
+/* Bloco muito pequeno vira só a mancha de cor: qualquer texto ali seria ilegível. */
+.cmap-bloco-minusculo .cmap-bloco-conteudo {
+	padding: 2px;
+}
+
+.cmap-bloco-minusculo .cmap-bloco-titulo {
+	writing-mode: horizontal-tb;
+	font-size: var(--font-ui-smaller);
+	text-align: center;
+	line-height: 1.1;
+}
+
+/* O ícone de nota sai de todo bloco estreito ou baixo, não só do minúsculo: numa barra de
+   60px ele e o gap comem quase metade do espaço útil, e ainda tiram o título do centro. */
+.cmap-bloco-minusculo .cmap-bloco-nota,
+.cmap-bloco-estreito .cmap-bloco-nota,
+.cmap-bloco-baixo .cmap-bloco-nota {
+	display: none;
+}
+
 /* Checklist dentro do card */
 
 .cmap-bloco-checklist {
@@ -372,6 +441,9 @@ neutros, e cada componente pinta o que precisa por cima.
 	height: 14px;
 	cursor: nwse-resize;
 	opacity: 0;
+	/* Acima das alças de seta: no canto inferior direito as duas se encostam em blocos
+	   pequenos, e redimensionar é o gesto que a pessoa quer ali. */
+	z-index: 2;
 	background: linear-gradient(
 		135deg,
 		transparent 50%,
@@ -387,6 +459,18 @@ neutros, e cada componente pinta o que precisa por cima.
 
 .cmap-bloco:hover .cmap-bloco-alca {
 	opacity: 0.8;
+}
+
+/* Num bloco pequeno a alça de 14px tomaria boa parte da área e atrapalharia o arrasto. */
+.cmap-bloco-minusculo .cmap-bloco-alca {
+	width: 9px;
+	height: 9px;
+}
+
+/* Selecionado, a alça fica visível sem depender do hover: ao ajustar tamanhos em sequência,
+   procurar o canto no escuro a cada bloco é o que cansa. */
+.cmap-bloco-selecionado .cmap-bloco-alca {
+	opacity: 0.85;
 }
 
 /* Uma alça por lado. A área de clique é maior que a bolinha (::after desenha o
@@ -442,6 +526,39 @@ neutros, e cada componente pinta o que precisa por cima.
 
 .cmap-bloco:hover .cmap-bloco-alca-seta {
 	opacity: 1;
+}
+
+/* Em bloco pequeno as quatro alças de 22px cobririam o card inteiro e não sobraria
+   área para arrastá-lo. Encolhem junto com ele. */
+.cmap-bloco-minusculo .cmap-bloco-alca-seta {
+	width: 14px;
+	height: 14px;
+}
+
+.cmap-bloco-minusculo .cmap-bloco-alca-seta::after {
+	width: 8px;
+	height: 8px;
+	border-width: 1.5px;
+}
+
+.cmap-bloco-minusculo .cmap-alca-cima {
+	top: -7px;
+	margin-left: -7px;
+}
+
+.cmap-bloco-minusculo .cmap-alca-baixo {
+	bottom: -7px;
+	margin-left: -7px;
+}
+
+.cmap-bloco-minusculo .cmap-alca-esquerda {
+	left: -7px;
+	margin-top: -7px;
+}
+
+.cmap-bloco-minusculo .cmap-alca-direita {
+	right: -7px;
+	margin-top: -7px;
 }
 
 /* --------------------------------------------------------------------------
