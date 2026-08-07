@@ -18,6 +18,7 @@ import {
 } from "./tipos";
 import { Lado, desenharSetas, pontoNoLado } from "./setas";
 import { Guia, encaixarAoMover, encaixarAoRedimensionar } from "./alinhamento";
+import { alvoDeAninhamento, contem, posicaoLivreDentro } from "./aninhar";
 import { PainelBloco } from "./painel-bloco";
 import { ModalConfirmar } from "./modal-confirmar";
 import { SeletorNota } from "./seletor-nota";
@@ -43,12 +44,25 @@ type Arrasto =
 	| { tipo: "plano"; inicioX: number; inicioY: number; cameraX: number; cameraY: number }
 	| {
 			tipo: "bloco";
+			/** O bloco sob o ponteiro — é ele que encaixa nas guias e define o alvo de aninhamento. */
 			bloco: Bloco;
 			inicioX: number;
 			inicioY: number;
 			blocoX: number;
 			blocoY: number;
+			/** Os demais selecionados, que acompanham o movimento mantendo a distância relativa. */
+			acompanhantes: { bloco: Bloco; deslocX: number; deslocY: number }[];
 			moveu: boolean;
+	  }
+	| {
+			tipo: "laco";
+			/** Canto onde o arrasto começou, em coordenadas do mapa. */
+			inicioX: number;
+			inicioY: number;
+			atualX: number;
+			atualY: number;
+			/** Seleção que já existia, preservada quando o laço soma (Shift). */
+			anteriores: Set<string>;
 	  }
 	| {
 			tipo: "redimensionar";
@@ -80,10 +94,17 @@ export class TelaMapa {
 	private linhaProvisoria: SVGPathElement | null = null;
 	/** Linhas-guia do encaixe, vivas só durante o arrasto. */
 	private guias: SVGLineElement[] = [];
+	/** Retângulo do laço de seleção, vivo só enquanto ela arrasta no fundo. */
+	private lacoEl: HTMLElement | null = null;
 
 	/** Caminho de ids até o nível aberto. Vazio = raiz. */
 	private caminho: string[] = [];
-	private blocoSelecionado: string | null = null;
+	/**
+	 * Blocos selecionados. O painel lateral só aparece quando há exatamente um — editar
+	 * título e texto de vários ao mesmo tempo não faria sentido —, mas mover, excluir e
+	 * colorir valem para o conjunto.
+	 */
+	private selecionados = new Set<string>();
 	private setaSelecionada: string | null = null;
 
 	constructor(
@@ -135,6 +156,8 @@ export class TelaMapa {
 		this.arrasto = { tipo: "nenhum" };
 		this.linhaProvisoria?.remove();
 		this.linhaProvisoria = null;
+		this.lacoEl?.remove();
+		this.lacoEl = null;
 
 		if (!nivelDoCaminho(this.mapa, this.caminho)) this.caminho = [];
 
@@ -146,9 +169,13 @@ export class TelaMapa {
 	private reancorarSelecao(): void {
 		const nivel = this.nivelAtual();
 
-		const bloco = this.blocoSelecionado ? nivel.blocos.find((b) => b.id === this.blocoSelecionado) : null;
-		this.blocoSelecionado = bloco?.id ?? null;
-		this.painel.reapontar(bloco ?? null);
+		// Descarta da seleção o que não existe mais no nível (bloco apagado por fora).
+		const existentes = new Set(nivel.blocos.map((b) => b.id));
+		for (const id of [...this.selecionados]) {
+			if (!existentes.has(id)) this.selecionados.delete(id);
+		}
+
+		this.painel.reapontar(this.blocoUnicoSelecionado());
 
 		if (this.setaSelecionada && !nivel.setas.some((s) => s.id === this.setaSelecionada)) {
 			this.setaSelecionada = null;
@@ -207,9 +234,21 @@ export class TelaMapa {
 	}
 
 	private limparSelecao(): void {
-		this.blocoSelecionado = null;
+		this.selecionados.clear();
 		this.setaSelecionada = null;
 		this.painel.mostrar(null);
+	}
+
+	/** O bloco selecionado quando há exatamente um; null com zero ou vários. */
+	private blocoUnicoSelecionado(): Bloco | null {
+		if (this.selecionados.size !== 1) return null;
+		const id = [...this.selecionados][0];
+		return this.nivelAtual().blocos.find((b) => b.id === id) ?? null;
+	}
+
+	/** Os blocos selecionados que existem no nível atual, na ordem em que estão no mapa. */
+	private blocosSelecionados(): Bloco[] {
+		return this.nivelAtual().blocos.filter((b) => this.selecionados.has(b.id));
 	}
 
 	// -------------------------------------------------------------------------
@@ -276,7 +315,12 @@ export class TelaMapa {
 			this.linhaProvisoria?.remove();
 			this.linhaProvisoria = null;
 			this.limparGuias();
+			// O laço não é .cmap-bloco, então a limpeza abaixo não o pegaria: sem isto ele
+			// ficaria congelado na tela para sempre se um redesenho caísse no meio do arrasto.
+			this.lacoEl?.remove();
+			this.lacoEl = null;
 			this.plano.querySelectorAll(".cmap-bloco-alvo").forEach((el) => el.removeClass("cmap-bloco-alvo"));
+			this.limparDestaqueDeAninhamento();
 		}
 
 		// Remove só os cards; o SVG das setas é reaproveitado.
@@ -322,7 +366,7 @@ export class TelaMapa {
 		card.style.width = `${bloco.largura}px`;
 		card.style.height = `${bloco.altura}px`;
 		this.marcarTamanho(card, bloco);
-		if (this.blocoSelecionado === bloco.id) card.addClass("cmap-bloco-selecionado");
+		if (this.selecionados.has(bloco.id)) card.addClass("cmap-bloco-selecionado");
 
 		// O conteúdo mora num contêiner que recorta; o card em si não recorta, senão as
 		// alças de seta (que ficam para fora da borda) seriam cortadas pela metade.
@@ -481,21 +525,45 @@ export class TelaMapa {
 	}
 
 	private aoApertarNaArea(e: MouseEvent): void {
-		// Só o botão principal inicia o pan; o direito é menu de contexto.
-		if (e.button !== 0) return;
+		// Principal e botão do meio; o direito é menu de contexto.
+		const botaoDoMeio = e.button === 1;
+		if (e.button !== 0 && !botaoDoMeio) return;
 		if ((e.target as HTMLElement).closest(".cmap-bloco")) return;
 
-		this.limparSelecao();
-		this.desenharPlano();
+		// Ctrl (ou o botão do meio) move a tela; arrastar solto no fundo desenha o laço de
+		// seleção. Pedido dela: selecionar vários é o gesto mais frequente no fundo, mover a
+		// tela é o eventual.
+		if (e.ctrlKey || e.metaKey || botaoDoMeio) {
+			// O botão do meio rola a página por padrão no Chromium; sem isto o pan brigaria
+			// com o auto-scroll do navegador.
+			e.preventDefault();
+			this.arrasto = {
+				tipo: "plano",
+				inicioX: e.clientX,
+				inicioY: e.clientY,
+				cameraX: this.camera.x,
+				cameraY: this.camera.y,
+			};
+			this.area.addClass("cmap-area-arrastando");
+			return;
+		}
+
+		const ponto = this.paraCoordenadasDoMapa(e.clientX, e.clientY);
+		const somar = e.shiftKey;
+
+		if (!somar) {
+			this.limparSelecao();
+			this.desenharPlano();
+		}
 
 		this.arrasto = {
-			tipo: "plano",
-			inicioX: e.clientX,
-			inicioY: e.clientY,
-			cameraX: this.camera.x,
-			cameraY: this.camera.y,
+			tipo: "laco",
+			inicioX: ponto.x,
+			inicioY: ponto.y,
+			atualX: ponto.x,
+			atualY: ponto.y,
+			anteriores: new Set(somar ? this.selecionados : []),
 		};
-		this.area.addClass("cmap-area-arrastando");
 	}
 
 	private aoDuploCliqueNaArea(e: MouseEvent): void {
@@ -530,13 +598,36 @@ export class TelaMapa {
 	}
 
 	private iniciarArrastoDeBloco(e: MouseEvent, bloco: Bloco): void {
+		// Ctrl move a TELA, mesmo com o ponteiro sobre um card — num mapa cheio os cards
+		// cobrem quase tudo, e o pan ficaria preso aos vãos entre eles.
+		if (e.ctrlKey || e.metaKey || e.button === 1) {
+			e.stopPropagation();
+			e.preventDefault();
+			this.arrasto = {
+				tipo: "plano",
+				inicioX: e.clientX,
+				inicioY: e.clientY,
+				cameraX: this.camera.x,
+				cameraY: this.camera.y,
+			};
+			this.area.addClass("cmap-area-arrastando");
+			return;
+		}
+
 		if (e.button !== 0) return;
 		// As alças têm o próprio handler; sem isso o bloco andaria junto ao redimensionar.
 		if ((e.target as HTMLElement).closest(".cmap-bloco-alca, .cmap-bloco-alca-seta")) return;
 		if ((e.target as HTMLElement).closest("input")) return;
 
 		e.stopPropagation();
-		this.selecionarBloco(bloco);
+		this.selecionarBloco(bloco, e.shiftKey);
+
+		// Se ele faz parte de uma seleção, o grupo inteiro anda junto. A distância de cada um
+		// para o bloco puxado é fixada agora, e o movimento apenas a reaplica — assim o
+		// encaixe age só sobre o puxado e o layout do grupo não se deforma.
+		const acompanhantes = this.blocosSelecionados()
+			.filter((b) => b.id !== bloco.id)
+			.map((b) => ({ bloco: b, deslocX: b.x - bloco.x, deslocY: b.y - bloco.y }));
 
 		this.arrasto = {
 			tipo: "bloco",
@@ -545,6 +636,7 @@ export class TelaMapa {
 			inicioY: e.clientY,
 			blocoX: bloco.x,
 			blocoY: bloco.y,
+			acompanhantes,
 			moveu: false,
 		};
 	}
@@ -611,8 +703,23 @@ export class TelaMapa {
 					this.desenharGuias(encaixe.guias);
 				}
 
+				// O grupo reaplica a distância fixada no início do arrasto.
+				for (const acompanhante of this.arrasto.acompanhantes) {
+					acompanhante.bloco.x = bloco.x + acompanhante.deslocX;
+					acompanhante.bloco.y = bloco.y + acompanhante.deslocY;
+					this.posicionarCard(acompanhante.bloco);
+				}
+
 				this.posicionarCard(bloco);
+				this.destacarAlvoDeAninhamento(bloco);
 				this.redesenharSetas();
+				break;
+			}
+			case "laco": {
+				const ponto = this.paraCoordenadasDoMapa(e.clientX, e.clientY);
+				this.arrasto.atualX = ponto.x;
+				this.arrasto.atualY = ponto.y;
+				this.atualizarLaco();
 				break;
 			}
 			case "redimensionar": {
@@ -654,23 +761,189 @@ export class TelaMapa {
 	};
 
 	private aoSoltar = (e: MouseEvent): void => {
+		// Só os botões que iniciam arrasto o encerram: soltar o direito no meio de um pan
+		// com o botão do meio não pode matar o gesto que ainda está em curso.
+		if (e.button !== 0 && e.button !== 1) return;
+
 		const arrasto = this.arrasto;
 		this.arrasto = { tipo: "nenhum" };
 		this.area.removeClass("cmap-area-arrastando");
 		this.limparGuias();
 
+		// Clique sem arrasto num bloco de uma seleção múltipla reduz a seleção a ele. É como o
+		// Figma e o Canvas se comportam, e é o único caminho para voltar a editar um só —
+		// `selecionarBloco` preserva o conjunto no mousedown justamente para permitir arrastar
+		// o grupo, então a redução tem que acontecer aqui, quando se sabe que não houve gesto.
+		if (arrasto.tipo === "bloco" && !arrasto.moveu && !e.shiftKey && this.selecionados.size > 1) {
+			this.selecionados = new Set([arrasto.bloco.id]);
+			this.painel.mostrar(arrasto.bloco);
+			this.aplicarClassesDeSelecao();
+			return;
+		}
+
 		if (arrasto.tipo === "bloco" && arrasto.moveu) {
+			this.limparDestaqueDeAninhamento();
+
+			// Soltar um bloco inteiramente dentro de outro o move para dentro dele. Cada
+			// acompanhante é testado por conta própria: arrastar um grupo não deve levar para
+			// dentro um bloco que ficou visivelmente de fora.
+			const alvo = alvoDeAninhamento(arrasto.bloco, this.vizinhosDe(arrasto.bloco));
+			if (alvo) {
+				const movidos = [arrasto.bloco, ...arrasto.acompanhantes.map((a) => a.bloco)].filter(
+					(b) => b.id === arrasto.bloco.id || contem(alvo, b)
+				);
+				this.aninhar(movidos, alvo);
+				return;
+			}
+
 			this.aoSalvar();
 		} else if (arrasto.tipo === "redimensionar") {
 			this.aoSalvar();
 		} else if (arrasto.tipo === "seta") {
 			this.finalizarSeta(arrasto.de, e);
+		} else if (arrasto.tipo === "laco") {
+			this.finalizarLaco();
 		}
 	};
 
 	/** Os outros blocos do nível: com quem o bloco em movimento pode se alinhar. */
 	private vizinhosDe(bloco: Bloco): Bloco[] {
 		return this.nivelAtual().blocos.filter((b) => b.id !== bloco.id);
+	}
+
+	// -------------------------------------------------------------------------
+	// Aninhamento por arrasto
+	// -------------------------------------------------------------------------
+
+	/** Marca o bloco que receberia o arrastado se ele fosse solto agora. */
+	private destacarAlvoDeAninhamento(movel: Bloco): void {
+		this.limparDestaqueDeAninhamento();
+		const alvo = alvoDeAninhamento(movel, this.vizinhosDe(movel));
+		if (!alvo) return;
+		this.plano
+			.querySelector(`.cmap-bloco[data-id="${alvo.id}"]`)
+			?.addClass("cmap-bloco-recebendo");
+	}
+
+	private limparDestaqueDeAninhamento(): void {
+		this.plano.querySelectorAll(".cmap-bloco-recebendo").forEach((el) => el.removeClass("cmap-bloco-recebendo"));
+	}
+
+	/**
+	 * Move blocos para dentro de `pai`: eles saem deste nível e passam a ser filhos dele,
+	 * ganhando posição livre no plano de dentro.
+	 *
+	 * As setas entre os movidos vão junto — descrevem a relação entre eles, que continua
+	 * valendo lá dentro. As que ligavam um movido a um bloco que ficou para trás são
+	 * descartadas: os dois lados passam a viver em níveis diferentes, e uma seta não
+	 * atravessa níveis.
+	 */
+	private aninhar(movidos: Bloco[], pai: Bloco): void {
+		const nivel = this.nivelAtual();
+		const ids = new Set(movidos.map((b) => b.id));
+
+		// Um bloco não pode entrar em si mesmo: viraria um ciclo. `alvoDeAninhamento` já exclui
+		// o próprio bloco puxado, mas o alvo pode ser um dos acompanhantes do grupo — ela
+		// selecionou A e B e arrastou A para dentro de B.
+		if (ids.has(pai.id)) {
+			// O arrasto em si vale: os blocos ficam onde ela soltou, só não aninham.
+			this.aoSalvar();
+			new Notice("Um bloco selecionado não pode receber os outros. Tire-o da seleção e arraste de novo.");
+			return;
+		}
+
+		for (let i = nivel.blocos.length - 1; i >= 0; i--) {
+			if (ids.has(nivel.blocos[i].id)) nivel.blocos.splice(i, 1);
+		}
+
+		// Preserva as setas internas ao grupo (descrevem a relação entre os movidos, que
+		// continua valendo lá dentro); descarta as que cruzariam níveis, porque os dois lados
+		// passam a viver em planos diferentes.
+		const setasQueVao: Seta[] = [];
+		let setasPerdidas = 0;
+		for (let i = nivel.setas.length - 1; i >= 0; i--) {
+			const seta = nivel.setas[i];
+			const de = ids.has(seta.de);
+			const para = ids.has(seta.para);
+			if (de && para) {
+				setasQueVao.unshift(seta);
+				nivel.setas.splice(i, 1);
+			} else if (de || para) {
+				nivel.setas.splice(i, 1);
+				setasPerdidas++;
+			}
+		}
+
+		for (const bloco of movidos) {
+			const posicao = posicaoLivreDentro(bloco, pai.filhos);
+			bloco.x = posicao.x;
+			bloco.y = posicao.y;
+			pai.filhos.push(bloco);
+		}
+
+		pai.setas.push(...setasQueVao);
+
+		this.limparSelecao();
+		this.aoSalvar();
+		this.desenhar();
+
+		const quantos = movidos.length;
+		const nomePai = pai.titulo || "bloco";
+		const oQueFoi =
+			quantos === 1
+				? `"${movidos[0].titulo || "Bloco"}" foi para dentro de "${nomePai}"`
+				: `${quantos} blocos foram para dentro de "${nomePai}"`;
+
+		// Seta apagada é perda de dado, e o mapa não tem desfazer: ela precisa saber.
+		const sobreSetas =
+			setasPerdidas > 0
+				? `. ${setasPerdidas} ${setasPerdidas === 1 ? "seta foi desfeita" : "setas foram desfeitas"} (ligavam blocos que agora estão em níveis diferentes)`
+				: "";
+
+		new Notice(`${oQueFoi}${sobreSetas}.`);
+	}
+
+	// -------------------------------------------------------------------------
+	// Laço de seleção
+	// -------------------------------------------------------------------------
+
+	/** Redesenha o retângulo do laço e marca quem está dentro dele. */
+	private atualizarLaco(): void {
+		if (this.arrasto.tipo !== "laco") return;
+		const { inicioX, inicioY, atualX, atualY, anteriores } = this.arrasto;
+
+		const x = Math.min(inicioX, atualX);
+		const y = Math.min(inicioY, atualY);
+		const largura = Math.abs(atualX - inicioX);
+		const altura = Math.abs(atualY - inicioY);
+
+		if (!this.lacoEl) {
+			this.lacoEl = this.plano.createDiv({ cls: "cmap-laco" });
+		}
+		this.lacoEl.style.left = `${x}px`;
+		this.lacoEl.style.top = `${y}px`;
+		this.lacoEl.style.width = `${largura}px`;
+		this.lacoEl.style.height = `${altura}px`;
+
+		// Basta o laço TOCAR o bloco: exigir contenção total obrigaria a envolver blocos
+		// grandes por inteiro, o que raramente cabe na tela.
+		this.selecionados = new Set(anteriores);
+		for (const bloco of this.nivelAtual().blocos) {
+			const toca =
+				bloco.x < x + largura &&
+				bloco.x + bloco.largura > x &&
+				bloco.y < y + altura &&
+				bloco.y + bloco.altura > y;
+			if (toca) this.selecionados.add(bloco.id);
+		}
+
+		this.aplicarClassesDeSelecao();
+	}
+
+	private finalizarLaco(): void {
+		this.lacoEl?.remove();
+		this.lacoEl = null;
+		this.painel.mostrar(this.blocoUnicoSelecionado());
 	}
 
 	/**
@@ -823,21 +1096,41 @@ export class TelaMapa {
 	// Seleção e edição
 	// -------------------------------------------------------------------------
 
-	private selecionarBloco(bloco: Bloco): void {
-		this.blocoSelecionado = bloco.id;
-		this.setaSelecionada = null;
-		this.painel.mostrar(bloco);
+	/**
+	 * Seleciona um bloco. Com `somar` (Shift), acrescenta ou tira da seleção em vez de
+	 * substituí-la — é o gesto de montar um conjunto clicando um a um.
+	 */
+	private selecionarBloco(bloco: Bloco, somar = false): void {
+		if (somar) {
+			if (this.selecionados.has(bloco.id)) this.selecionados.delete(bloco.id);
+			else this.selecionados.add(bloco.id);
+		} else {
+			// Clicar num bloco já selecionado preserva o conjunto: senão, começar a arrastar
+			// vários desfaria a seleção justamente no momento de movê-los.
+			if (!this.selecionados.has(bloco.id)) {
+				this.selecionados.clear();
+				this.selecionados.add(bloco.id);
+			}
+		}
 
-		this.plano.querySelectorAll(".cmap-bloco-selecionado").forEach((el) => el.removeClass("cmap-bloco-selecionado"));
-		this.plano.querySelector(`.cmap-bloco[data-id="${bloco.id}"]`)?.addClass("cmap-bloco-selecionado");
+		this.setaSelecionada = null;
+		this.painel.mostrar(this.blocoUnicoSelecionado());
+		this.aplicarClassesDeSelecao();
 		this.redesenharSetas();
+	}
+
+	/** Reflete a seleção no DOM sem redesenhar os cards. */
+	private aplicarClassesDeSelecao(): void {
+		this.plano.querySelectorAll<HTMLElement>(".cmap-bloco").forEach((card) => {
+			card.toggleClass("cmap-bloco-selecionado", this.selecionados.has(card.dataset.id ?? ""));
+		});
 	}
 
 	private selecionarSeta(seta: Seta): void {
 		this.setaSelecionada = seta.id;
-		this.blocoSelecionado = null;
+		this.selecionados.clear();
 		this.painel.mostrar(null);
-		this.plano.querySelectorAll(".cmap-bloco-selecionado").forEach((el) => el.removeClass("cmap-bloco-selecionado"));
+		this.aplicarClassesDeSelecao();
 		this.redesenharSetas();
 	}
 
@@ -862,42 +1155,57 @@ export class TelaMapa {
 	 * a subárvore inteira junto e não existe desfazer no mapa — mas pedir confirmação para
 	 * um card vazio recém-criado só atrapalharia.
 	 */
-	private pedirExclusao(bloco: Bloco): void {
-		const descendentes = contarDescendentes(bloco);
-		const temConteudo = descendentes > 0 || bloco.texto.trim() !== "" || bloco.checklist.length > 0;
+	private pedirExclusao(alvo: Bloco | Bloco[]): void {
+		const blocos = Array.isArray(alvo) ? alvo : [alvo];
+		if (blocos.length === 0) return;
+
+		const descendentes = blocos.reduce((soma, b) => soma + contarDescendentes(b), 0);
+		const temConteudo =
+			descendentes > 0 ||
+			blocos.length > 1 ||
+			blocos.some((b) => b.texto.trim() !== "" || b.checklist.length > 0);
 
 		if (!temConteudo) {
-			this.excluirBloco(bloco);
+			this.excluirBlocos(blocos);
 			return;
 		}
 
-		const nome = bloco.titulo || "Sem título";
 		const detalhe =
 			descendentes > 0
-				? ` Isso apaga também ${descendentes} ${descendentes === 1 ? "bloco que está" : "blocos que estão"} dentro dele.`
+				? ` Isso apaga também ${descendentes} ${descendentes === 1 ? "bloco que está" : "blocos que estão"} dentro ${blocos.length === 1 ? "dele" : "deles"}.`
 				: "";
+
+		const pergunta =
+			blocos.length === 1
+				? `Excluir "${blocos[0].titulo || "Sem título"}"?`
+				: `Excluir ${blocos.length} blocos?`;
 
 		new ModalConfirmar(
 			this.app,
-			"Excluir bloco",
-			`Excluir "${nome}"?${detalhe} Não é possível desfazer.`,
-			() => this.excluirBloco(bloco)
+			blocos.length === 1 ? "Excluir bloco" : "Excluir blocos",
+			`${pergunta}${detalhe} Não é possível desfazer.`,
+			() => this.excluirBlocos(blocos)
 		).open();
 	}
 
-	private excluirBloco(bloco: Bloco): void {
+	private excluirBlocos(blocos: Bloco[]): void {
 		const nivel = this.nivelAtual();
+		const ids = new Set(blocos.map((b) => b.id));
+
 		// Filtra por id, não por identidade: a referência pode ser de uma árvore anterior
 		// (arquivo recarregado), e aí remover pelo objeto não acharia nada e falharia calado.
-		const indice = nivel.blocos.findIndex((b) => b.id === bloco.id);
-		if (indice === -1) return;
+		for (let i = nivel.blocos.length - 1; i >= 0; i--) {
+			if (ids.has(nivel.blocos[i].id)) nivel.blocos.splice(i, 1);
+		}
 
-		nivel.blocos.splice(indice, 1);
 		// Sem isso sobrariam setas apontando para um bloco que não existe mais.
-		this.removerSetas((s) => s.de === bloco.id || s.para === bloco.id);
+		this.removerSetas((s) => ids.has(s.de) || ids.has(s.para));
 
-		this.painel.fecharSe(bloco.id);
-		if (this.blocoSelecionado === bloco.id) this.blocoSelecionado = null;
+		for (const id of ids) {
+			this.painel.fecharSe(id);
+			this.selecionados.delete(id);
+		}
+
 		this.aoSalvar();
 		this.desenhar();
 	}
@@ -989,34 +1297,41 @@ export class TelaMapa {
 		e.stopPropagation();
 		this.selecionarBloco(bloco);
 
+		// Com vários selecionados o menu age sobre o conjunto — clicar com o direito em um
+		// deles não é motivo para descartar a seleção que ela acabou de montar.
+		const alvos = this.selecionados.has(bloco.id) ? this.blocosSelecionados() : [bloco];
+		const varios = alvos.length > 1;
+
 		const menu = new Menu();
 
-		menu.addItem((item) =>
-			item
-				.setTitle("Entrar no bloco")
-				.setIcon("corner-down-right")
-				.onClick(() => this.entrarNoBloco(bloco.id))
-		);
+		if (!varios) {
+			menu.addItem((item) =>
+				item
+					.setTitle("Entrar no bloco")
+					.setIcon("corner-down-right")
+					.onClick(() => this.entrarNoBloco(bloco.id))
+			);
 
-		menu.addItem((item) =>
-			item
-				.setTitle("Duplicar")
-				.setIcon("copy")
-				.onClick(() => this.duplicarBloco(bloco))
-		);
+			menu.addItem((item) =>
+				item
+					.setTitle("Duplicar")
+					.setIcon("copy")
+					.onClick(() => this.duplicarBloco(bloco))
+			);
 
-		menu.addSeparator();
+			menu.addSeparator();
+		}
 
 		menu.addItem((item) => {
-			item.setTitle("Cor").setIcon("palette");
+			item.setTitle(varios ? `Cor dos ${alvos.length} blocos` : "Cor").setIcon("palette");
 			const submenu = (item as unknown as { setSubmenu: () => Menu }).setSubmenu();
 			for (const cor of Object.keys(ROTULO_DA_COR) as (keyof typeof ROTULO_DA_COR)[]) {
 				submenu.addItem((sub) =>
 					sub
 						.setTitle(ROTULO_DA_COR[cor])
-						.setChecked(bloco.cor === cor)
+						.setChecked(alvos.every((b) => b.cor === cor))
 						.onClick(() => {
-							bloco.cor = cor;
+							for (const alvo of alvos) alvo.cor = cor;
 							this.aoSalvar();
 							this.desenharPlano();
 						})
@@ -1025,46 +1340,49 @@ export class TelaMapa {
 		});
 
 		// Vincular nota mora só aqui, não no painel: ela pediu para tirar de lá por ser fácil
-		// de acionar sem querer. No menu ela é uma escolha deliberada.
-		if (bloco.nota) {
-			menu.addItem((item) =>
-				item
-					.setTitle("Abrir nota vinculada")
-					.setIcon("file-text")
-					.onClick(() => this.abrirNota(bloco.nota))
-			);
-			menu.addItem((item) =>
-				item
-					.setTitle("Desvincular nota")
-					.setIcon("unlink")
-					.onClick(() => {
-						bloco.nota = null;
-						this.aoSalvar();
-						this.desenharPlano();
-					})
-			);
-		} else {
-			menu.addItem((item) =>
-				item
-					.setTitle("Vincular a uma nota…")
-					.setIcon("link")
-					.onClick(() => {
-						new SeletorNota(this.app, (arquivo) => {
-							bloco.nota = arquivo.path;
+		// de acionar sem querer. No menu ela é uma escolha deliberada. Vincular é sempre de um
+		// bloco só, então some quando há vários selecionados.
+		if (!varios) {
+			if (bloco.nota) {
+				menu.addItem((item) =>
+					item
+						.setTitle("Abrir nota vinculada")
+						.setIcon("file-text")
+						.onClick(() => this.abrirNota(bloco.nota))
+				);
+				menu.addItem((item) =>
+					item
+						.setTitle("Desvincular nota")
+						.setIcon("unlink")
+						.onClick(() => {
+							bloco.nota = null;
 							this.aoSalvar();
 							this.desenharPlano();
-						}).open();
-					})
-			);
+						})
+				);
+			} else {
+				menu.addItem((item) =>
+					item
+						.setTitle("Vincular a uma nota…")
+						.setIcon("link")
+						.onClick(() => {
+							new SeletorNota(this.app, (arquivo) => {
+								bloco.nota = arquivo.path;
+								this.aoSalvar();
+								this.desenharPlano();
+							}).open();
+						})
+				);
+			}
 		}
 
 		menu.addSeparator();
 
 		menu.addItem((item) =>
 			item
-				.setTitle("Excluir")
+				.setTitle(varios ? `Excluir ${alvos.length} blocos` : "Excluir")
 				.setIcon("trash-2")
-				.onClick(() => this.pedirExclusao(bloco))
+				.onClick(() => this.pedirExclusao(alvos))
 		);
 
 		menu.showAtMouseEvent(e);
@@ -1099,6 +1417,19 @@ export class TelaMapa {
 		const alvo = e.target as HTMLElement;
 		if (alvo.matches("input, textarea") || alvo.isContentEditable) return false;
 
+		// Ctrl+A seleciona tudo do nível: o atalho universal, e o caminho mais rápido para
+		// mover um layout inteiro de lugar.
+		if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
+			// Consome a tecla mesmo sem blocos: na tela em branco é onde ela mais aperta
+			// Ctrl+A, e deixar passar faria o Obsidian selecionar o texto da interface.
+			const blocos = this.nivelAtual().blocos;
+			this.selecionados = new Set(blocos.map((b) => b.id));
+			this.setaSelecionada = null;
+			this.painel.mostrar(this.blocoUnicoSelecionado());
+			this.aplicarClassesDeSelecao();
+			return true;
+		}
+
 		// Só Delete, não Backspace: um bloco carrega a subárvore inteira e não há desfazer,
 		// então a tecla mais fácil de apertar sem querer não pode apagar nada.
 		if (e.key === "Delete") {
@@ -1106,17 +1437,15 @@ export class TelaMapa {
 				this.excluirSetaSelecionada();
 				return true;
 			}
-			if (this.blocoSelecionado) {
-				const bloco = this.nivelAtual().blocos.find((b) => b.id === this.blocoSelecionado);
-				if (bloco) {
-					this.pedirExclusao(bloco);
-					return true;
-				}
+			const selecionados = this.blocosSelecionados();
+			if (selecionados.length > 0) {
+				this.pedirExclusao(selecionados);
+				return true;
 			}
 		}
 
 		if (e.key === "Escape") {
-			if (this.blocoSelecionado || this.setaSelecionada) {
+			if (this.selecionados.size > 0 || this.setaSelecionada) {
 				this.limparSelecao();
 				this.desenharPlano();
 				return true;
@@ -1127,8 +1456,10 @@ export class TelaMapa {
 			}
 		}
 
-		if (e.key === "Enter" && this.blocoSelecionado) {
-			this.entrarNoBloco(this.blocoSelecionado);
+		// Entrar num bloco é gesto de um só: com vários selecionados não há "o" bloco.
+		const unico = this.blocoUnicoSelecionado();
+		if (e.key === "Enter" && unico) {
+			this.entrarNoBloco(unico.id);
 			return true;
 		}
 

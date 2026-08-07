@@ -155,7 +155,8 @@ neutros, e cada componente pinta o que precisa por cima.
 	position: relative;
 	flex: 1;
 	overflow: hidden;
-	cursor: grab;
+	/* Arrastar o fundo seleciona; mover a tela é com Ctrl. O cursor anuncia o padrão. */
+	cursor: default;
 	/* Grade de pontos: dá referência de espaço sem competir com os cards. */
 	background-color: var(--background-primary);
 	background-image: radial-gradient(circle, var(--background-modifier-border) 1px, transparent 1px);
@@ -261,6 +262,24 @@ neutros, e cada componente pinta o que precisa por cima.
 .cmap-bloco-alvo {
 	border-color: var(--interactive-accent);
 	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+/* O bloco que vai RECEBER outro por aninhamento. Preenchimento em vez de contorno, para
+   dizer "cai aqui dentro" e não se confundir com o alvo de uma seta, que é contorno. */
+.cmap-bloco-recebendo {
+	border-color: var(--interactive-accent);
+	border-style: dashed;
+	background-color: color-mix(in srgb, var(--interactive-accent) 14%, var(--cmap-fundo));
+}
+
+/* Laço de seleção arrastado no fundo da tela. */
+.cmap-laco {
+	position: absolute;
+	pointer-events: none;
+	border: 1px solid var(--interactive-accent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+	border-radius: 2px;
+	z-index: 3;
 }
 
 .cmap-bloco-cabecalho {
