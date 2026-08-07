@@ -1,6 +1,7 @@
 import { Notice, Plugin, TFolder, normalizePath } from "obsidian";
 import { EXTENSAO_CMAP, escreverMapa, mapaVazio } from "./tipos";
 import { TIPO_VISTA_MAPA, VistaMapa } from "./vista-mapa";
+import { TIPO_VISTA_GALERIA, VistaGaleria } from "./vista-galeria";
 import {
 	CONFIGURACOES_PADRAO,
 	ConfiguracoesCanvaMaps,
@@ -16,15 +17,21 @@ export default class CanvaMapsPlugin extends Plugin {
 		this.configuracoes = await carregarConfiguracoes(this);
 		this.addSettingTab(new PainelConfigCanvaMaps(this.app, this));
 
-		this.registerView(TIPO_VISTA_MAPA, (leaf) => new VistaMapa(leaf));
+		this.registerView(TIPO_VISTA_MAPA, (leaf) => new VistaMapa(leaf, this));
+		this.registerView(TIPO_VISTA_GALERIA, (leaf) => new VistaGaleria(leaf, this));
 
 		// É isto que faz um arquivo .cmap abrir nesta view ao clicar nele na barra lateral.
 		this.registerExtensions([EXTENSAO_CMAP], TIPO_VISTA_MAPA);
 
-		// Ícone na barra lateral esquerda. Abre o mapa mais recente em vez de sempre criar um
-		// novo — o gesto de "voltar para os meus mapas" é muito mais frequente que o de começar
-		// do zero, e criar um arquivo a cada clique encheria o vault de mapas vazios.
-		this.addRibbonIcon("layout-dashboard", "Canva Maps", () => this.abrirOuCriarMapa());
+		// O ribbon abre a galeria, não um mapa: a página inicial do plugin é a visão do
+		// conjunto, e é de lá que se entra num mapa ou se cria outro.
+		this.addRibbonIcon("layout-dashboard", "Canva Maps", () => this.abrirGaleria());
+
+		this.addCommand({
+			id: "abrir-galeria",
+			name: "Abrir mapas",
+			callback: () => this.abrirGaleria(),
+		});
 
 		this.addCommand({
 			id: "novo-mapa",
@@ -54,6 +61,22 @@ export default class CanvaMapsPlugin extends Plugin {
 
 	async salvarConfiguracoes(): Promise<void> {
 		await salvarConfiguracoes(this, this.configuracoes);
+	}
+
+	/**
+	 * Abre a galeria de mapas. Se já houver uma aberta, vai para ela em vez de duplicar —
+	 * a galeria é uma só, como a tela inicial de um app.
+	 */
+	async abrirGaleria(): Promise<void> {
+		const existente = this.app.workspace.getLeavesOfType(TIPO_VISTA_GALERIA)[0];
+		if (existente) {
+			await this.app.workspace.revealLeaf(existente);
+			return;
+		}
+
+		const leaf = this.app.workspace.getLeaf(true);
+		await leaf.setViewState({ type: TIPO_VISTA_GALERIA, active: true });
+		await this.app.workspace.revealLeaf(leaf);
 	}
 
 	/**
@@ -87,13 +110,27 @@ export default class CanvaMapsPlugin extends Plugin {
 	 * `pasta` só vem preenchida quando ela usou o menu de contexto de uma pasta — nesse caso o
 	 * gesto diz onde criar, e a configuração não deve atropelar o que ela acabou de apontar.
 	 */
-	private async criarMapa(pasta?: TFolder): Promise<void> {
+	/**
+	 * Cria um mapa e abre.
+	 *
+	 * `daGaleria` decide onde abrir: vindo da galeria, o mapa novo substitui a galeria na
+	 * mesma aba (entrar num mapa novo é o mesmo gesto de entrar num existente). Vindo da
+	 * paleta ou do menu de pasta, abre em aba nova — reaproveitar a aba da galeria a
+	 * sequestraria de outro painel, possivelmente invisível, e pareceria que nada aconteceu.
+	 */
+	async criarMapa(pasta?: TFolder, daGaleria = false): Promise<void> {
 		const destino = pasta ?? (await this.pastaPadrao());
 		const caminho = await this.caminhoLivre(destino, "Novo mapa");
 
 		try {
 			const arquivo = await this.app.vault.create(caminho, escreverMapa(mapaVazio()));
-			await this.app.workspace.getLeaf(true).openFile(arquivo);
+
+			const galeriaAtiva = this.app.workspace.getActiveViewOfType(VistaGaleria)?.leaf;
+			const alvo = daGaleria && galeriaAtiva ? galeriaAtiva : this.app.workspace.getLeaf(true);
+
+			await alvo.openFile(arquivo);
+			// Sem isto o mapa poderia nascer numa aba de fundo e ela não veria nada acontecer.
+			await this.app.workspace.revealLeaf(alvo);
 		} catch (erro) {
 			new Notice(`Não foi possível criar o mapa: ${erro instanceof Error ? erro.message : erro}`);
 		}

@@ -1,8 +1,16 @@
 import { TextFileView, WorkspaceLeaf } from "obsidian";
-import { Mapa, escreverMapa, lerMapa, mapaVazio } from "./tipos";
+import type CanvaMapsPlugin from "./main";
+import {
+	Mapa,
+	TIPO_VISTA_GALERIA,
+	TIPO_VISTA_MAPA,
+	escreverMapa,
+	lerMapa,
+	mapaVazio,
+} from "./tipos";
 import { TelaMapa } from "./tela-mapa";
 
-export const TIPO_VISTA_MAPA = "canva-maps-mapa";
+export { TIPO_VISTA_MAPA };
 
 /**
  * A aba que abre um arquivo .cmap.
@@ -15,7 +23,7 @@ export class VistaMapa extends TextFileView {
 	private mapa: Mapa = mapaVazio();
 	private tela: TelaMapa | null = null;
 
-	constructor(leaf: WorkspaceLeaf) {
+	constructor(leaf: WorkspaceLeaf, private plugin: CanvaMapsPlugin) {
 		super(leaf);
 	}
 
@@ -84,7 +92,14 @@ export class VistaMapa extends TextFileView {
 		this.tela?.destruir();
 		this.contentEl.empty();
 
-		this.tela = new TelaMapa(this.contentEl, this.app, this.mapa, () => this.marcarSujo());
+		this.tela = new TelaMapa(
+			this.contentEl,
+			this.app,
+			this.mapa,
+			() => this.marcarSujo(),
+			this.file?.basename ?? "",
+			() => this.voltarParaGaleria()
+		);
 		this.tela.desenhar();
 
 		// Sem foco no contentEl o keydown nunca chega até ele: a tecla dispara no elemento
@@ -97,5 +112,17 @@ export class VistaMapa extends TextFileView {
 	/** Avisa o Obsidian que há mudanças a gravar. Ele agenda a escrita do arquivo. */
 	private marcarSujo(): void {
 		this.requestSave();
+	}
+
+	/**
+	 * Volta para a galeria reaproveitando esta aba — a navegação mapa ⇄ galeria é ida e volta
+	 * no mesmo lugar, não empilhamento de abas.
+	 *
+	 * `save()` antes de trocar a view: `requestSave` é adiado em alguns segundos, e sair da
+	 * aba nesse intervalo descartaria o que ela acabou de mexer.
+	 */
+	private async voltarParaGaleria(): Promise<void> {
+		await this.save();
+		await this.leaf.setViewState({ type: TIPO_VISTA_GALERIA, active: true });
 	}
 }

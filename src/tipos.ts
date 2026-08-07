@@ -15,6 +15,13 @@ export const VERSAO_FORMATO = 1;
 export const EXTENSAO_CMAP = "cmap";
 
 /**
+ * Identificadores das views. Moram aqui, e não nos arquivos que as definem, porque as duas
+ * views navegam uma para a outra — importar o tipo do módulo vizinho criaria ciclo.
+ */
+export const TIPO_VISTA_MAPA = "canva-maps-mapa";
+export const TIPO_VISTA_GALERIA = "canva-maps-galeria";
+
+/**
  * Cores disponíveis para um bloco. São nomes, não hex: assim o mapa acompanha o tema
  * claro/escuro do Obsidian em vez de ficar com cor fixa que some no fundo escuro.
  */

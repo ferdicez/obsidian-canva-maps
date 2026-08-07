@@ -732,6 +732,214 @@ neutros, e cada componente pinta o que precisa por cima.
 }
 
 /* --------------------------------------------------------------------------
+   Galeria de mapas (a página inicial do plugin)
+   -------------------------------------------------------------------------- */
+
+.cmap-galeria {
+	padding: 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+}
+
+.cmap-galeria button {
+	background-color: transparent;
+	background-image: none;
+	border: none;
+	box-shadow: none;
+	color: inherit;
+	font-family: inherit;
+}
+
+.cmap-galeria-cabecalho {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 20px 24px 14px;
+	background: var(--background-primary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.cmap-galeria-linha-titulo {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.cmap-galeria-titulo {
+	font-size: var(--font-ui-larger);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.cmap-galeria-novo {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 14px;
+	border-radius: var(--radius-s);
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.cmap-galeria-novo:hover {
+	background-color: var(--interactive-accent-hover);
+}
+
+.cmap-galeria-novo-icone {
+	display: flex;
+}
+
+.cmap-galeria-novo .svg-icon {
+	width: 15px;
+	height: 15px;
+}
+
+.cmap-galeria-ferramentas {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.cmap-galeria-busca {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--font-ui-small);
+}
+
+.cmap-galeria-ferramenta {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 5px 10px;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	flex-shrink: 0;
+}
+
+.cmap-galeria-ferramenta:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.cmap-galeria-ferramenta.is-ativa {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+	box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+
+.cmap-galeria-ferramenta .svg-icon {
+	width: 15px;
+	height: 15px;
+}
+
+.cmap-galeria-corpo {
+	padding: 18px 24px 32px;
+}
+
+.cmap-galeria-grupo {
+	font-size: var(--font-ui-smaller);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--text-faint);
+	margin: 20px 0 8px;
+}
+
+.cmap-galeria-grupo:first-child {
+	margin-top: 0;
+}
+
+/* auto-fill em vez de auto-fit: com poucos mapas os cards mantêm a largura
+   em vez de esticarem para ocupar a linha inteira. */
+.cmap-galeria-grade {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+	gap: 12px;
+}
+
+.cmap-galeria-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 16px;
+	min-height: 116px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	cursor: pointer;
+	transition: border-color 80ms ease-out, box-shadow 80ms ease-out;
+}
+
+.cmap-galeria-card:hover {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cmap-galeria-card:focus-visible {
+	outline: none;
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.cmap-galeria-card-icone {
+	display: flex;
+	color: var(--text-faint);
+	margin-bottom: 4px;
+}
+
+.cmap-galeria-card-icone .svg-icon {
+	width: 20px;
+	height: 20px;
+}
+
+.cmap-galeria-card-nome {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	margin-top: auto;
+	/* Nome longo quebra em até duas linhas em vez de esticar o card. */
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}
+
+.cmap-galeria-card-info {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.cmap-galeria-vazio {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	padding: 60px 20px;
+	text-align: center;
+}
+
+.cmap-galeria-vazio-titulo {
+	font-size: var(--font-ui-large);
+	color: var(--text-muted);
+}
+
+.cmap-galeria-vazio-texto {
+	font-size: var(--font-ui-small);
+	color: var(--text-faint);
+	max-width: 380px;
+	margin-bottom: 8px;
+}
+
+/* --------------------------------------------------------------------------
    Painel de configurações
 
    Segue plugins/_docs/painel-de-configuracoes.md: escopo por classe raiz e

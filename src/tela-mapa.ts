@@ -88,7 +88,11 @@ export class TelaMapa {
 		pai: HTMLElement,
 		private app: App,
 		private mapa: Mapa,
-		private aoSalvar: () => void
+		private aoSalvar: () => void,
+		/** Nome do arquivo, mostrado como raiz da trilha. */
+		private nomeDoMapa: string = "",
+		/** Volta para a galeria. Sem isso, o degrau "Mapas" não aparece na trilha. */
+		private aoVoltarParaGaleria?: () => void
 	) {
 		this.raiz = pai.createDiv({ cls: "cmap-raiz" });
 
@@ -228,8 +232,20 @@ export class TelaMapa {
 
 		const caminho = this.trilhaEl.createDiv({ cls: "cmap-trilha-itens" });
 
-		const raiz = caminho.createEl("button", { cls: "cmap-trilha-item", text: "Mapa" });
-		raiz.addEventListener("click", () => this.irParaNivel(0));
+		// Primeiro degrau da trilha: a galeria. Sem isto não haveria como voltar para a
+		// visão do conjunto sem passar pela barra lateral.
+		if (this.aoVoltarParaGaleria) {
+			const galeria = caminho.createEl("button", { cls: "cmap-trilha-item", text: "Mapas" });
+			galeria.addEventListener("click", () => this.aoVoltarParaGaleria?.());
+			caminho.createSpan({ cls: "cmap-trilha-sep", text: "›" });
+		}
+
+		const raiz = caminho.createEl("button", {
+			cls: "cmap-trilha-item",
+			text: this.nomeDoMapa || "Mapa",
+		});
+		if (this.caminho.length === 0) raiz.addClass("cmap-trilha-atual");
+		else raiz.addEventListener("click", () => this.irParaNivel(0));
 
 		const blocos = blocosDoCaminho(this.mapa, this.caminho);
 		blocos.forEach((bloco, i) => {
