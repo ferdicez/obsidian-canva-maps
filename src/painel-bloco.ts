@@ -21,7 +21,9 @@ export class PainelBloco {
 		pai: HTMLElement,
 		private aoMudar: (redesenhar: boolean) => void,
 		private aoEntrar: (bloco: Bloco) => void,
-		private aoExcluir: (bloco: Bloco) => void
+		private aoExcluir: (bloco: Bloco) => void,
+		/** Guarda o estado atual no histórico antes de a edição acontecer. */
+		private antesDeMudar: (rotulo: string) => void
 	) {
 		this.raiz = pai.createDiv({ cls: "cmap-painel" });
 		this.raiz.addClass("cmap-painel-oculto");
@@ -83,6 +85,9 @@ export class PainelBloco {
 		});
 		campo.value = bloco.titulo;
 		campo.addEventListener("input", () => {
+			// Rótulo estável: teclas seguidas no mesmo campo viram um passo só de desfazer,
+			// em vez de voltar letra por letra.
+			this.antesDeMudar(`titulo:${bloco.id}`);
 			bloco.titulo = campo.value;
 			this.aoMudar(false);
 		});
@@ -95,6 +100,7 @@ export class PainelBloco {
 		});
 		campo.value = bloco.texto;
 		campo.addEventListener("input", () => {
+			this.antesDeMudar(`texto:${bloco.id}`);
 			bloco.texto = campo.value;
 			this.aoMudar(false);
 		});
@@ -110,6 +116,7 @@ export class PainelBloco {
 			});
 			botao.toggleClass("cmap-painel-cor-ativa", bloco.cor === cor);
 			botao.addEventListener("click", () => {
+				this.antesDeMudar(`cor:${bloco.id}:${cor}`);
 				bloco.cor = cor;
 				this.aoMudar(true);
 				this.mostrar(bloco);
@@ -127,6 +134,7 @@ export class PainelBloco {
 			const marca = linha.createEl("input", { attr: { type: "checkbox" } });
 			marca.checked = item.feito;
 			marca.addEventListener("change", () => {
+				this.antesDeMudar(`check:${item.id}`);
 				item.feito = marca.checked;
 				this.aoMudar(true);
 			});
@@ -134,6 +142,7 @@ export class PainelBloco {
 			const texto = linha.createEl("input", { cls: "cmap-painel-check-texto", attr: { type: "text" } });
 			texto.value = item.texto;
 			texto.addEventListener("input", () => {
+				this.antesDeMudar(`check-texto:${item.id}`);
 				item.texto = texto.value;
 				this.aoMudar(false);
 			});
@@ -144,6 +153,7 @@ export class PainelBloco {
 			});
 			setIcon(remover, "trash-2");
 			remover.addEventListener("click", () => {
+				this.antesDeMudar(`remover-item:${item.id}`);
 				bloco.checklist.remove(item);
 				this.aoMudar(true);
 				this.mostrar(bloco);
@@ -152,6 +162,7 @@ export class PainelBloco {
 
 		const adicionar = secao.createEl("button", { cls: "cmap-painel-botao", text: "+ Adicionar item" });
 		adicionar.addEventListener("click", () => {
+			this.antesDeMudar(`add-item:${bloco.id}:${Date.now()}`);
 			bloco.checklist.push({ id: novoId(), texto: "", feito: false });
 			this.aoMudar(true);
 			this.mostrar(bloco);

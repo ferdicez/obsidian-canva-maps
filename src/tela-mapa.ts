@@ -19,6 +19,7 @@ import {
 import { Lado, desenharSetas, pontoNoLado } from "./setas";
 import { Guia, encaixarAoMover, encaixarAoRedimensionar } from "./alinhamento";
 import { alvoDeAninhamento, contem, posicaoLivreDentro } from "./aninhar";
+import { Historico } from "./historico";
 import { PainelBloco } from "./painel-bloco";
 import { ModalConfirmar } from "./modal-confirmar";
 import { SeletorNota } from "./seletor-nota";
@@ -71,8 +72,21 @@ type Arrasto =
 			inicioY: number;
 			largura: number;
 			altura: number;
+			/** Se o passo de desfazer já foi criado (no primeiro movimento real). */
+			registrou: boolean;
 	  }
-	| { tipo: "seta"; de: Bloco; lado: Lado; x: number; y: number };
+	| { tipo: "seta"; de: Bloco; lado: Lado; x: number; y: number }
+	| {
+			tipo: "escalar-grupo";
+			inicioX: number;
+			inicioY: number;
+			/** Se o passo de desfazer já foi criado (no primeiro movimento real). */
+			registrou: boolean;
+			/** Caixa que envolvia a seleção quando o gesto começou. */
+			caixa: { x: number; y: number; largura: number; altura: number };
+			/** Estado inicial de cada bloco, para a escala partir sempre do original. */
+			originais: { bloco: Bloco; x: number; y: number; largura: number; altura: number }[];
+	  };
 
 /**
  * A tela do mapa: desenha um nível (os blocos de um bloco pai, ou a raiz) e trata
@@ -96,6 +110,8 @@ export class TelaMapa {
 	private guias: SVGLineElement[] = [];
 	/** Retângulo do laço de seleção, vivo só enquanto ela arrasta no fundo. */
 	private lacoEl: HTMLElement | null = null;
+	/** Moldura em volta da seleção múltipla, com a alça que escala o conjunto. */
+	private caixaGrupoEl: HTMLElement | null = null;
 
 	/** Caminho de ids até o nível aberto. Vazio = raiz. */
 	private caminho: string[] = [];
@@ -106,6 +122,7 @@ export class TelaMapa {
 	 */
 	private selecionados = new Set<string>();
 	private setaSelecionada: string | null = null;
+	private historico = new Historico();
 
 	constructor(
 		pai: HTMLElement,
@@ -136,7 +153,8 @@ export class TelaMapa {
 				if (redesenhar) this.desenhar();
 			},
 			(bloco) => this.entrarNoBloco(bloco.id),
-			(bloco) => this.pedirExclusao(bloco)
+			(bloco) => this.pedirExclusao(bloco),
+			(rotulo) => this.registrarNoHistorico(rotulo)
 		);
 
 		this.ligarEventos();
@@ -151,6 +169,11 @@ export class TelaMapa {
 	 * que não é mais serializado ao salvar: as edições sumiriam sem aviso. Por isso a seleção é
 	 * reancorada por id, e o arrasto é abortado.
 	 */
+	/** Esquece o histórico de desfazer — usado quando a aba passa a mostrar outro arquivo. */
+	esquecerHistorico(): void {
+		this.historico.limpar();
+	}
+
 	definirMapa(mapa: Mapa): void {
 		this.mapa = mapa;
 		this.arrasto = { tipo: "nenhum" };
@@ -158,6 +181,8 @@ export class TelaMapa {
 		this.linhaProvisoria = null;
 		this.lacoEl?.remove();
 		this.lacoEl = null;
+		this.caixaGrupoEl?.remove();
+		this.caixaGrupoEl = null;
 
 		if (!nivelDoCaminho(this.mapa, this.caminho)) this.caminho = [];
 
@@ -184,6 +209,60 @@ export class TelaMapa {
 
 	destruir(): void {
 		this.raiz.remove();
+	}
+
+	// -------------------------------------------------------------------------
+	// Desfazer / refazer
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Guarda o estado atual como ponto de retorno. Chamar SEMPRE antes de mexer no mapa.
+	 *
+	 * O `rotulo` agrupa ações repetidas num passo só: use um valor estável enquanto a ação
+	 * continua (ex.: `texto:<id>` durante a digitação) e um valor único quando cada
+	 * ocorrência deve ser um passo próprio.
+	 */
+	private registrarNoHistorico(rotulo: string): void {
+		this.historico.registrar(this.mapa, rotulo, Date.now());
+	}
+
+	private desfazer(): void {
+		const anterior = this.historico.desfazer(this.mapa, Date.now());
+		if (!anterior) {
+			new Notice("Nada para desfazer.");
+			return;
+		}
+		this.aplicarEstado(anterior);
+	}
+
+	private refazer(): void {
+		const proximo = this.historico.refazer(this.mapa, Date.now());
+		if (!proximo) {
+			new Notice("Nada para refazer.");
+			return;
+		}
+		this.aplicarEstado(proximo);
+	}
+
+	/**
+	 * Troca o mapa pelo estado vindo do histórico.
+	 *
+	 * O conteúdo do mapa é substituído NO LUGAR (mesmo objeto) porque `this.mapa` é a mesma
+	 * referência que a view serializa ao salvar — trocar o objeto aqui faria o arquivo
+	 * continuar sendo gravado a partir do mapa antigo.
+	 */
+	private aplicarEstado(novo: Mapa): void {
+		this.mapa.blocos = novo.blocos;
+		this.mapa.setas = novo.setas;
+		this.mapa.versao = novo.versao;
+
+		// O nível aberto pode não existir mais no estado restaurado (desfazer a criação do
+		// bloco em que se entrou), e a seleção aponta para objetos que já não estão na árvore.
+		if (!nivelDoCaminho(this.mapa, this.caminho)) this.caminho = [];
+		this.limparSelecao();
+
+		this.aoSalvar();
+		this.desenhar();
 	}
 
 	// -------------------------------------------------------------------------
@@ -319,11 +398,15 @@ export class TelaMapa {
 			// ficaria congelado na tela para sempre se um redesenho caísse no meio do arrasto.
 			this.lacoEl?.remove();
 			this.lacoEl = null;
+			// A caixa do grupo idem: é recriada logo abaixo a partir da seleção atual.
+			this.caixaGrupoEl?.remove();
+			this.caixaGrupoEl = null;
 			this.plano.querySelectorAll(".cmap-bloco-alvo").forEach((el) => el.removeClass("cmap-bloco-alvo"));
 			this.limparDestaqueDeAninhamento();
 		}
 
-		// Remove só os cards; o SVG das setas é reaproveitado.
+		// Remove só os cards; o SVG das setas é reaproveitado. A caixa do grupo é redesenhada
+		// no fim, junto com as classes de seleção.
 		this.plano.querySelectorAll(".cmap-bloco").forEach((el) => el.remove());
 
 		const nivel = this.nivelAtual();
@@ -338,6 +421,7 @@ export class TelaMapa {
 			aoClicar: (seta) => this.selecionarSeta(seta),
 		});
 
+		this.desenharCaixaDoGrupo();
 		this.desenharEstadoVazio(nivel);
 	}
 
@@ -428,6 +512,7 @@ export class TelaMapa {
 
 			marca.addEventListener("change", (e) => {
 				e.stopPropagation();
+				this.registrarNoHistorico(`check:${item.id}`);
 				item.feito = marca.checked;
 				this.aoSalvar();
 				this.painel.atualizarSe(bloco);
@@ -648,6 +733,9 @@ export class TelaMapa {
 
 		this.arrasto = {
 			tipo: "redimensionar",
+			// Como no arrasto: o passo de desfazer nasce no primeiro movimento real, para um
+			// clique na alça não gastar um passo que não muda nada.
+			registrou: false,
 			bloco,
 			inicioX: e.clientX,
 			inicioY: e.clientY,
@@ -678,6 +766,10 @@ export class TelaMapa {
 				const dx = (e.clientX - this.arrasto.inicioX) / this.camera.zoom;
 				const dy = (e.clientY - this.arrasto.inicioY) / this.camera.zoom;
 				if (!this.arrasto.moveu && Math.hypot(dx, dy) * this.camera.zoom < LIMIAR_ARRASTO) break;
+
+				// O ponto de retorno é o estado ANTES do primeiro movimento real: registrar no
+				// mousedown criaria um passo mesmo para um clique que só seleciona.
+				if (!this.arrasto.moveu) this.registrarNoHistorico(`mover:${this.arrasto.bloco.id}:${Date.now()}`);
 
 				this.arrasto.moveu = true;
 				const bloco = this.arrasto.bloco;
@@ -722,10 +814,21 @@ export class TelaMapa {
 				this.atualizarLaco();
 				break;
 			}
+			case "escalar-grupo": {
+				this.escalarGrupo(e);
+				break;
+			}
 			case "redimensionar": {
 				const dx = (e.clientX - this.arrasto.inicioX) / this.camera.zoom;
 				const dy = (e.clientY - this.arrasto.inicioY) / this.camera.zoom;
 				const alvo = this.arrasto.bloco;
+
+				if (!this.arrasto.registrou) {
+					if (Math.hypot(dx, dy) * this.camera.zoom < LIMIAR_ARRASTO) break;
+					this.registrarNoHistorico(`tamanho:${alvo.id}:${Date.now()}`);
+					this.arrasto.registrou = true;
+				}
+
 				const livreLargura = Math.round(Math.max(LARGURA_MINIMA, this.arrasto.largura + dx));
 				const livreAltura = Math.round(Math.max(ALTURA_MINIMA, this.arrasto.altura + dy));
 
@@ -803,6 +906,8 @@ export class TelaMapa {
 			this.finalizarSeta(arrasto.de, e);
 		} else if (arrasto.tipo === "laco") {
 			this.finalizarLaco();
+		} else if (arrasto.tipo === "escalar-grupo") {
+			this.aoSalvar();
 		}
 	};
 
@@ -894,7 +999,8 @@ export class TelaMapa {
 				? `"${movidos[0].titulo || "Bloco"}" foi para dentro de "${nomePai}"`
 				: `${quantos} blocos foram para dentro de "${nomePai}"`;
 
-		// Seta apagada é perda de dado, e o mapa não tem desfazer: ela precisa saber.
+		// Seta apagada some sem deixar rastro na tela: mesmo com Ctrl+Z, ela precisa saber que
+		// aconteceu para decidir se quer voltar.
 		const sobreSetas =
 			setasPerdidas > 0
 				? `. ${setasPerdidas} ${setasPerdidas === 1 ? "seta foi desfeita" : "setas foram desfeitas"} (ligavam blocos que agora estão em níveis diferentes)`
@@ -1077,7 +1183,9 @@ export class TelaMapa {
 			return;
 		}
 
-		nivel.setas.push({ id: novoId(), de: de.id, para: idAlvo, rotulo: "" });
+		const idSeta = novoId();
+		this.registrarNoHistorico(`seta:${idSeta}`);
+		nivel.setas.push({ id: idSeta, de: de.id, para: idAlvo, rotulo: "" });
 		this.aoSalvar();
 		this.redesenharSetas();
 	}
@@ -1124,6 +1232,130 @@ export class TelaMapa {
 		this.plano.querySelectorAll<HTMLElement>(".cmap-bloco").forEach((card) => {
 			card.toggleClass("cmap-bloco-selecionado", this.selecionados.has(card.dataset.id ?? ""));
 		});
+		this.desenharCaixaDoGrupo();
+	}
+
+	// -------------------------------------------------------------------------
+	// Caixa do grupo (escala proporcional de vários blocos)
+	// -------------------------------------------------------------------------
+
+	/** Retângulo que envolve os blocos selecionados, ou null com menos de dois. */
+	private caixaDaSelecao(): { x: number; y: number; largura: number; altura: number } | null {
+		const blocos = this.blocosSelecionados();
+		if (blocos.length < 2) return null;
+
+		const x = Math.min(...blocos.map((b) => b.x));
+		const y = Math.min(...blocos.map((b) => b.y));
+		const direita = Math.max(...blocos.map((b) => b.x + b.largura));
+		const baixo = Math.max(...blocos.map((b) => b.y + b.altura));
+
+		return { x, y, largura: direita - x, altura: baixo - y };
+	}
+
+	/**
+	 * Desenha a moldura em volta da seleção múltipla, com a alça que escala o conjunto.
+	 * Some quando há menos de dois blocos — com um só, a alça do próprio card já resolve.
+	 */
+	private desenharCaixaDoGrupo(): void {
+		const caixa = this.caixaDaSelecao();
+
+		if (!caixa) {
+			this.caixaGrupoEl?.remove();
+			this.caixaGrupoEl = null;
+			return;
+		}
+
+		if (!this.caixaGrupoEl) {
+			this.caixaGrupoEl = this.plano.createDiv({ cls: "cmap-grupo" });
+			const alca = this.caixaGrupoEl.createDiv({
+				cls: "cmap-grupo-alca",
+				attr: { "aria-label": "Redimensionar a seleção" },
+			});
+			alca.addEventListener("mousedown", (e) => this.iniciarEscalaDeGrupo(e));
+		}
+
+		this.caixaGrupoEl.style.left = `${caixa.x}px`;
+		this.caixaGrupoEl.style.top = `${caixa.y}px`;
+		this.caixaGrupoEl.style.width = `${caixa.largura}px`;
+		this.caixaGrupoEl.style.height = `${caixa.altura}px`;
+	}
+
+	private iniciarEscalaDeGrupo(e: MouseEvent): void {
+		if (e.button !== 0) return;
+		e.stopPropagation();
+		e.preventDefault();
+
+		const caixa = this.caixaDaSelecao();
+		if (!caixa) return;
+
+		this.arrasto = {
+			tipo: "escalar-grupo",
+			inicioX: e.clientX,
+			inicioY: e.clientY,
+			// O histórico só é tocado no primeiro movimento real: um clique na alça sem
+			// arrastar não muda nada, e gastaria um passo que parece não fazer nada ao desfazer.
+			registrou: false,
+			caixa,
+			// Cada bloco guarda seu estado original: aplicar a escala sobre o valor corrente
+			// acumularia erro de arredondamento a cada quadro do arrasto.
+			originais: this.blocosSelecionados().map((bloco) => ({
+				bloco,
+				x: bloco.x,
+				y: bloco.y,
+				largura: bloco.largura,
+				altura: bloco.altura,
+			})),
+		};
+	}
+
+	/**
+	 * Escala o conjunto a partir do canto superior esquerdo da caixa, que fica parado.
+	 *
+	 * Tamanhos E distâncias entre os blocos crescem juntos — o layout inteiro aumenta como
+	 * uma coisa só, que é o que ela pediu. Sem `Shift`, os dois eixos usam o mesmo fator (o
+	 * maior dos dois), preservando a proporção do desenho; com `Shift`, cada eixo é livre.
+	 */
+	private escalarGrupo(e: MouseEvent): void {
+		if (this.arrasto.tipo !== "escalar-grupo") return;
+		const { caixa, originais } = this.arrasto;
+
+		const dx = (e.clientX - this.arrasto.inicioX) / this.camera.zoom;
+		const dy = (e.clientY - this.arrasto.inicioY) / this.camera.zoom;
+
+		if (!this.arrasto.registrou) {
+			if (Math.hypot(dx, dy) * this.camera.zoom < LIMIAR_ARRASTO) return;
+			this.registrarNoHistorico(`escalar:${Date.now()}`);
+			this.arrasto.registrou = true;
+		}
+
+		let fatorX = (caixa.largura + dx) / caixa.largura;
+		let fatorY = (caixa.altura + dy) / caixa.altura;
+
+		if (!e.shiftKey) {
+			const uniforme = Math.max(fatorX, fatorY);
+			fatorX = uniforme;
+			fatorY = uniforme;
+		}
+
+		// O grupo inteiro para de encolher quando o MENOR bloco chega ao mínimo. Limitar cada
+		// bloco por si deformaria o layout: os pequenos travariam no piso enquanto os grandes
+		// continuariam encolhendo, e as proporções entre eles — que é o desenho — se perderiam.
+		const pisoX = Math.max(...originais.map((o) => LARGURA_MINIMA / o.largura));
+		const pisoY = Math.max(...originais.map((o) => ALTURA_MINIMA / o.altura));
+		fatorX = Math.max(fatorX, pisoX);
+		fatorY = Math.max(fatorY, pisoY);
+
+		for (const original of originais) {
+			const { bloco } = original;
+			bloco.x = Math.round(caixa.x + (original.x - caixa.x) * fatorX);
+			bloco.y = Math.round(caixa.y + (original.y - caixa.y) * fatorY);
+			bloco.largura = Math.round(original.largura * fatorX);
+			bloco.altura = Math.round(original.altura * fatorY);
+			this.posicionarCard(bloco);
+		}
+
+		this.desenharCaixaDoGrupo();
+		this.redesenharSetas();
 	}
 
 	private selecionarSeta(seta: Seta): void {
@@ -1136,6 +1368,7 @@ export class TelaMapa {
 
 	private criarBloco(x: number, y: number): void {
 		const bloco = novoBloco(Math.round(x), Math.round(y));
+		this.registrarNoHistorico(`criar:${bloco.id}`);
 		this.nivelAtual().blocos.push(bloco);
 		this.aoSalvar();
 		this.desenhar();
@@ -1152,8 +1385,9 @@ export class TelaMapa {
 
 	/**
 	 * Exclui o bloco, confirmando antes quando há algo a perder. Um bloco com filhos leva
-	 * a subárvore inteira junto e não existe desfazer no mapa — mas pedir confirmação para
-	 * um card vazio recém-criado só atrapalharia.
+	 * a subárvore inteira junto, e o que some não está visível na tela para ela conferir —
+	 * mas pedir confirmação para um card vazio recém-criado só atrapalharia. (Desde a 0.8.0
+	 * há Ctrl+Z, então a confirmação é sobre o susto, não sobre a irreversibilidade.)
 	 */
 	private pedirExclusao(alvo: Bloco | Bloco[]): void {
 		const blocos = Array.isArray(alvo) ? alvo : [alvo];
@@ -1183,7 +1417,7 @@ export class TelaMapa {
 		new ModalConfirmar(
 			this.app,
 			blocos.length === 1 ? "Excluir bloco" : "Excluir blocos",
-			`${pergunta}${detalhe} Não é possível desfazer.`,
+			`${pergunta}${detalhe}`,
 			() => this.excluirBlocos(blocos)
 		).open();
 	}
@@ -1191,6 +1425,8 @@ export class TelaMapa {
 	private excluirBlocos(blocos: Bloco[]): void {
 		const nivel = this.nivelAtual();
 		const ids = new Set(blocos.map((b) => b.id));
+
+		this.registrarNoHistorico(`excluir:${Date.now()}`);
 
 		// Filtra por id, não por identidade: a referência pode ser de uma árvore anterior
 		// (arquivo recarregado), e aí remover pelo objeto não acharia nada e falharia calado.
@@ -1214,6 +1450,7 @@ export class TelaMapa {
 		const copia = this.clonar(bloco);
 		copia.x += 24;
 		copia.y += 24;
+		this.registrarNoHistorico(`duplicar:${copia.id}`);
 		this.nivelAtual().blocos.push(copia);
 		this.aoSalvar();
 		this.desenhar();
@@ -1331,6 +1568,7 @@ export class TelaMapa {
 						.setTitle(ROTULO_DA_COR[cor])
 						.setChecked(alvos.every((b) => b.cor === cor))
 						.onClick(() => {
+							this.registrarNoHistorico(`cor:${Date.now()}`);
 							for (const alvo of alvos) alvo.cor = cor;
 							this.aoSalvar();
 							this.desenharPlano();
@@ -1355,6 +1593,7 @@ export class TelaMapa {
 						.setTitle("Desvincular nota")
 						.setIcon("unlink")
 						.onClick(() => {
+							this.registrarNoHistorico(`nota:${bloco.id}:${Date.now()}`);
 							bloco.nota = null;
 							this.aoSalvar();
 							this.desenharPlano();
@@ -1367,6 +1606,7 @@ export class TelaMapa {
 						.setIcon("link")
 						.onClick(() => {
 							new SeletorNota(this.app, (arquivo) => {
+								this.registrarNoHistorico(`nota:${bloco.id}:${Date.now()}`);
 								bloco.nota = arquivo.path;
 								this.aoSalvar();
 								this.desenharPlano();
@@ -1391,6 +1631,7 @@ export class TelaMapa {
 	private excluirSetaSelecionada(): void {
 		if (!this.setaSelecionada) return;
 		const id = this.setaSelecionada;
+		this.registrarNoHistorico(`excluir-seta:${id}`);
 		this.removerSetas((s) => s.id === id);
 		this.setaSelecionada = null;
 		this.aoSalvar();
@@ -1413,9 +1654,25 @@ export class TelaMapa {
 
 	/** Trata teclas de atalho. Devolve true quando consumiu a tecla. */
 	tratarTecla(e: KeyboardEvent): boolean {
-		// Digitando num campo, as teclas são do campo — não do mapa.
+		// Digitando num campo de TEXTO, as teclas são do campo — não do mapa. Checkbox fica de
+		// fora de propósito: ele guarda o foco depois de clicado, e incluí-lo aqui faria os
+		// atalhos morrerem em silêncio até ela clicar em outro lugar.
 		const alvo = e.target as HTMLElement;
-		if (alvo.matches("input, textarea") || alvo.isContentEditable) return false;
+		if (alvo.matches('input:not([type="checkbox"]), textarea') || alvo.isContentEditable) return false;
+
+		const comando = e.ctrlKey || e.metaKey;
+
+		// Ctrl+Z desfaz, Ctrl+Shift+Z (ou Ctrl+Y) refaz.
+		if (comando && e.key.toLowerCase() === "z") {
+			if (e.shiftKey) this.refazer();
+			else this.desfazer();
+			return true;
+		}
+
+		if (comando && e.key.toLowerCase() === "y") {
+			this.refazer();
+			return true;
+		}
 
 		// Ctrl+A seleciona tudo do nível: o atalho universal, e o caminho mais rápido para
 		// mover um layout inteiro de lugar.
@@ -1430,8 +1687,8 @@ export class TelaMapa {
 			return true;
 		}
 
-		// Só Delete, não Backspace: um bloco carrega a subárvore inteira e não há desfazer,
-		// então a tecla mais fácil de apertar sem querer não pode apagar nada.
+		// Só Delete, não Backspace: um bloco carrega a subárvore inteira, e a tecla mais fácil
+		// de apertar sem querer não deve apagar nada — mesmo havendo Ctrl+Z.
 		if (e.key === "Delete") {
 			if (this.setaSelecionada) {
 				this.excluirSetaSelecionada();

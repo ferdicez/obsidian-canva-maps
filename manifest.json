@@ -1,7 +1,7 @@
 {
 	"id": "canva-maps",
 	"name": "Canva Maps",
-	"version": "0.7.0",
+	"version": "0.8.0",
 	"minAppVersion": "1.5.0",
 	"description": "Mapas visuais de blocos aninhados para estruturar sites e sistemas: cards dentro de cards, com entrar/voltar entre níveis.",
 	"author": "ferdicez",

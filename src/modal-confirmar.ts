@@ -1,8 +1,9 @@
 import { App, Modal, Setting } from "obsidian";
 
 /**
- * Confirmação para ações destrutivas. Existe porque o mapa não tem desfazer:
- * apagar um bloco leva junto tudo que estava dentro dele, em qualquer profundidade.
+ * Confirmação para ações destrutivas: apagar um bloco leva junto tudo que estava dentro
+ * dele, em qualquer profundidade — e o que some não está visível na tela para ela conferir
+ * antes. Existe mesmo com Ctrl+Z, porque o problema é não perceber, não a irreversibilidade.
  */
 export class ModalConfirmar extends Modal {
 	constructor(

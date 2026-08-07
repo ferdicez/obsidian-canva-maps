@@ -65,16 +65,22 @@ export class VistaMapa extends TextFileView {
 	 */
 	clear(): void {
 		this.mapa = mapaVazio();
+		// O histórico é do arquivo, não da aba: sem isto, Ctrl+Z no próximo mapa traria de
+		// volta um estado do mapa anterior.
+		this.tela?.esquecerHistorico();
 		this.tela?.definirMapa(this.mapa);
 	}
 
 	async onOpen(): Promise<void> {
 		this.contentEl.addClass("cmap-conteudo");
-		this.contentEl.addEventListener("keydown", this.aoTeclar);
+
+		// Captura (`true`) em vez de bolha: o Obsidian tem os próprios atalhos para Ctrl+Z e
+		// Ctrl+A, e na bolha ele os trataria antes de o mapa ver a tecla.
+		this.contentEl.addEventListener("keydown", this.aoTeclar, true);
 	}
 
 	async onClose(): Promise<void> {
-		this.contentEl.removeEventListener("keydown", this.aoTeclar);
+		this.contentEl.removeEventListener("keydown", this.aoTeclar, true);
 		this.tela?.desligarEventos();
 		this.tela?.destruir();
 		this.tela = null;

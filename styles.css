@@ -272,6 +272,38 @@ neutros, e cada componente pinta o que precisa por cima.
 	background-color: color-mix(in srgb, var(--interactive-accent) 14%, var(--cmap-fundo));
 }
 
+/*
+Moldura em volta de uma seleção múltipla, com a alça que escala o conjunto inteiro.
+Só aparece com dois ou mais blocos — com um, a alça do próprio card já resolve.
+*/
+.cmap-grupo {
+	position: absolute;
+	pointer-events: none;
+	border: 1px dashed var(--interactive-accent);
+	border-radius: 2px;
+	/* Abaixo dos cards: a moldura emoldura, não cobre. A alça sobe sozinha. */
+	z-index: 1;
+}
+
+.cmap-grupo-alca {
+	position: absolute;
+	right: -7px;
+	bottom: -7px;
+	width: 14px;
+	height: 14px;
+	border: 2px solid var(--background-primary);
+	border-radius: 3px;
+	background: var(--interactive-accent);
+	cursor: nwse-resize;
+	/* A moldura ignora o ponteiro; a alça precisa recebê-lo. */
+	pointer-events: auto;
+	z-index: 4;
+}
+
+.cmap-grupo-alca:hover {
+	transform: scale(1.15);
+}
+
 /* Laço de seleção arrastado no fundo da tela. */
 .cmap-laco {
 	position: absolute;
